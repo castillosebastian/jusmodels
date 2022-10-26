@@ -42,7 +42,7 @@ Elaborar pronósticos o proyecciones sobre variables importantes de un negocio e
 
 Los scripts completos de esta implementación y los documentos RMarkdown que sirven a esta presentación puede accederse en mi repositorio de github [castillosebastian](https://github.com/castillosebastian/jusmodels.git). En el README de ese repositorio se puede encontrar un detalle de la configuración del ambiente de trabajo que he utilizado en el proyecto y recomendaciones para su instalación.    
 
-Como veremos más adelante, algunas partes de las Operaciones de desarrollo de modelos (vinculadas a un pipeline de MLOps) requieren cierto *hardware* particular (sobretodo RAM y CPU). En nuestro caso hemos trabajado en un Centos 7, con 12 vCPU y 32G de RAM, y en  ocasiones esos recursos fueron insuficientes, por lo que algo más de disponibilidad sería de ayuda.   
+Como veremos más adelante, algunas partes de las operaciones de desarrollo de modelos (vinculadas a un pipeline de MLOps) requieren cierto *hardware* particular (sobretodo RAM y CPU). En nuestro caso hemos trabajado en un Centos 7, con 12 vCPU y 32G de RAM, y en ocasiones esos recursos fueron insuficientes, por lo que algo más de disponibilidad será de ayuda.   
 
 Respecto del *pipeline* de trabajo nos hemos apoyado exclusivamente en [R](https://www.r-project.org/), y particularmente en [tidymodels](https://www.tidymodels.org/), gracias al aprecio que tenemos por [tidyverse](https://www.tidyverse.org/). Este *framework* nos brinda toda una batería de herramientas que facilitan el trabajo y la experimentación, aspecto fundamental en el desarrollo de modelos de *machine learning*. Para culquiera intersado en él dirigirse aquí: https://www.tidymodels.org/.    
 
@@ -72,7 +72,7 @@ myskim <- skim_with(numeric = sfl(max, min), append = TRUE)
 
 # Explorando los datos
 
-Para este ejemplo de implementación hemos generado un dataset de **sentencias mensuales dictadas por materia** con información de acceso público suministrada por el Superior Tribunal de Justicia de Entre Ríos -mas [aquí](https://tablero.jusentrerios.gov.ar/). La información comprende la producción de sentencias en primera instancia a lo largo del período que se extiende entre los años 2018 y septiembre 2022. 
+Para este ejemplo de implementación hemos generado un dataset de **sentencias mensuales dictadas por materia**, información de acceso público suministrada por el Superior Tribunal de Justicia de Entre Ríos -accesible [aquí](https://tablero.jusentrerios.gov.ar/). La información comprende la producción de sentencias en primera instancia a lo largo del período que se extiende entre los años 2018 y septiembre 2022. 
 
 Las materias antes referidas se vinculan a órganos jurisdiccionales, así, por ejemplo, existen 38 juzgados con materia civil-comercial en la provincia, por lo que las sentencias de dicha materia refieren a la suma de la producción de los 38 juzgados. Para consultar extensamente la estructura y estadística pública judicial remitimos al link includio más arriba. Dicha información se registra digitalmente y es procesada por el Área de Planificación, Gestión y Estadística.
 
@@ -118,7 +118,7 @@ En el gráfico se ve cierta tendencia incipiente y la estacionalidad asociada a 
 
 ## Sentencias mensuales por materia
 
-En el siguiente gráfico de densidad vemos las sentencias según su materia. Vemos que hay materias con una distribución aproximadamente normal (ej. quiebras y paz) y otras con distribuciones claramente asimétricas.         
+En el siguiente gráfico de densidad vemos las sentencias según su materia. Vemos que hay materias con una distribución aproximadamente normal (ej. quiebras y paz) y otras con distribuciones claramente asimétricas (penal y laboral).         
 
 ```{r}
 produccion_tbl %>% 
@@ -130,6 +130,16 @@ produccion_tbl %>%
   facet_wrap( ~ materia, scales = "free") +
   theme(strip.text.x = element_text(size = 16))
   
+```
+
+## Modelo base: regresión lineal múltiple 
+
+A continuación generamos un modelo de regresión con los datos originales que nos servirá de base para evaluar las trasnformaciones que realizaremos buscando mejorar el poder predictivo de nuestros datos.   
+
+```{r}
+model = lm(sentencias_dictadas ~., data = produccion_tbl )
+jtools::summ(model)
+#summary(model)
 ```
 
 # Iniciamos la ingeniería de variables (feature engineering)
@@ -144,9 +154,9 @@ produccion_tbl %>%
   kable() %>% kable_styling()
 ```
 
-Vemos que la serie tiene, en efecto, estructura mensual (*scale* = month) y que hay materias que tiene menos observaciones: contencioso-administrativo y paz 1º (esto podría afectar las predicciones). Dada la poca cantidad de datos emplearemos el dataset completo, aunque podemos asumir que el período 2020 contendrá valores extremos debido al efecto de la pandemia sobre la actividad social en general y judicial en particular.    
+Vemos que la serie tiene, en efecto, estructura mensual (*scale* = month) y que hay materias que tiene menos observaciones: contencioso-administrativo y paz 1º (esto podría afectar las predicciones). Dada la poca cantidad de datos disponibles, utilizaremos el dataset completo, aunque podemos asumir que el período 2020 contendrá valores extremos debido al efecto de la pandemia sobre la actividad social en general y judicial en particular.    
 
-La creación de nuevas variables es una estrategia para explotar la información que contiene el dataset aumentando sus *señales* en relación a una variable de interés (en general el *target* del modelo). Las posibilidades aquí son inagotables: desde transformaciones lineales hasta creación de nuevas variables basadas en combinaciones aleatorias. En todos los casos el conocimiento del dominio puede ser determinante.    
+En *machine learning* la creación de nuevas variables es una estrategia elemental para explotar la información que contiene el dataset, aumentando sus *señales* en relación a una variable de interés (en general el *target* del modelo). Las posibilidades aquí son inagotables: desde transformaciones lineales hasta creación de nuevas variables basadas en combinaciones aleatorias. En todos los casos el conocimiento del dominio puede ser determinante. Una buena referencia para este tema puede consultarse [aquí](https://www.repath.in/gallery/feature_engineering_for_machine_learning.pdf).  
 
 Como vemos en el siguiente gráfico, ésta actividad se encuentra en las primeras etapas del desarrollo de un *pipeline* para predicciones de series temporals (gráfico publicado en [Meisenbacher et all](https://wires.onlinelibrary.wiley.com/doi/full/10.1002/widm.1475)). Esta estructura nos aporta una visión general del proyecto y representa una buena síntesis del desafío que enfrentamos.       
 
@@ -155,10 +165,10 @@ knitr::include_graphics("~/jusmodels/rmarkdowns/forecast_pipeline.PNG")
 ```
 Entonces, a continuación presentaremos una breve reseña de las transformaciones que implementaremos en los datos:     
 
-- **Transformación logarítmica**: La transformación logarítmica es un tipo de transformación matemática que puede ser útil para reducir la varianza en los datos. Esto puede ser pertinente cuando los datos evidencian una variación que aumenta o disminuye con la serie, y tiene como ventaja que los logaritmos son interpretables como cambios relativos (o porcentuales) en la escala original (ver pto. 3.2 Transformations and adjustments, Hyndman, R.J., & Athanasopoulos, G. (2018) Forecasting: principles and practice, 2nd edition, OTexts: Melbourne, Australia. OTexts.com/fpp2. Accessed on 25/10/2022.)     
-- **Estandarización**: Dado que tenemos tantas series temporales como materias a predecir estandarizaremos las cantidades para centrar las series. Esto supone que las observaciones tienen una distribución normal, cosa que como vimos no sucede, y es probable que los resultados no sean precisos. Sin embargo, en esta etapa de la experimentación procuramos mantener todas la hipótesis abiertas, y luego veremos qué funciona y qué no.      
-- **Variables de calendario**: Estas variables surgen como operaciones sobre la marca temporal y es muy fácil derivarlas. Hay funciones que se encargan de producirlas por defecto (e.g. *timetk::tk_augment_timeseries_signature()*) y luego pueden desecharse aquellas que no son de utilidad o no aplican al caso bajo estudio. En nuestro caso como estamos tratando con datos mensuales debemos suprimir todas las columnas relacionadas con horas, días y semanas.   
-- **Transformaciones de Fourier**: Con esta transformación de los datos temporales se busca convertir la temporalidad en frecuencias, obteniendo un espectro con los distintos armónicos que están presentes en la serie (resaltando sus elementos y dinámica) (ver Series Fourier, en https://otexts.com/fpp3/useful-predictors.html). Esto claramente será de utilidad en nuestro trabajo dada la estacionalidad que vimos en la serie total.  Para elegir los parametros de transformación hicimos un muy(!) simple serie de experimentos, en lo que advertimos lo gran incidencia que tiene esta transformación en los modelos lineales con los que testeamos significancia.
+- **Transformación logarítmica**: La transformación logarítmica es un tipo de transformación matemática que puede ser útil para reducir la varianza en los datos. Esto puede ser pertinente cuando los datos evidencian una variación que aumenta o disminuye con la serie, y tiene como ventaja que los logaritmos son interpretables como cambios relativos (o porcentuales) en la escala original (ver pto. 3.2 Transformations and adjustments, acceso público [aquí](https://otexts.com/fpp3/transformations.html)).      
+- **Estandarización**: Dado que tenemos tantas series temporales como materias a predecir estandarizaremos las cantidades para centrar las series (mean=0, sd=1). Esto supone que las observaciones tienen una distribución normal, cosa que como vimos no sucede, y es probable que los resultados no sean precisos. Sin embargo, en esta etapa de la experimentación procuramos mantener todas la hipótesis abiertas, y luego veremos qué funciona y qué no.      
+- **Variables de calendario**: Estas variables surgen como operaciones sobre la marca temporal y es muy fácil calcularlas Hay funciones que se encargan de producirlas por defecto (e.g. *timetk::tk_augment_timeseries_signature()*) y luego pueden desecharse aquellas que no son de utilidad o no aplican al caso bajo estudio. En nuestro caso como estamos tratando con datos mensuales, luego de aplicar la función debemos suprimir todas las columnas relacionadas con horas, días y semanas.   
+- **Transformaciones de Fourier**: Con esta transformación de los datos temporales se busca convertir la temporalidad en frecuencias, obteniendo un espectro con los distintos armónicos que están presentes en la serie (resaltando sus elementos y dinámica) (ver Series Fourier, en https://otexts.com/fpp3/useful-predictors.html). Esto claramente será de utilidad en nuestro trabajo dada la estacionalidad que vimos en la serie total.  Para elegir los parámetros de transformación hicimos un grupo de experimentos, en lo que advertimos lo gran incidencia que tiene esta transformación en los modelos lineales con los que testeamos significancia. Nos quedamos con dos transformaciones (k = 3 y k = 4) que nos dieron el Adj_R2 más alto. 
 - **Lags y Rolling Lags**: Los lags permiten construir una versión desfasada de la serie temporal, retardando (o adelantando) los valores de la serie en la magnitud del desfase especificado. 
 
 ```{r}
@@ -170,13 +180,17 @@ groups <- lapply(X = 1:length(materia), FUN = function(x){
     filter(materia == materia[x]) %>%
     arrange(mes) %>%
     mutate(sentencias_dictadas =  log1p(x = sentencias_dictadas)) %>%
+    # estandarizacion
     mutate(sentencias_dictadas =  standardize_vec(sentencias_dictadas)) %>%
     # agregamos meses a futuro
     future_frame(mes, .length_out = "12 month", .bind_data = TRUE) %>%
     mutate(materia = materia[x]) %>%
-    tk_augment_fourier(.date_var = mes, .periods = 2, .K = 1) %>%
-    tk_augment_fourier(.date_var = mes, .periods = 6, .K = 2) %>%
-    tk_augment_fourier(.date_var = mes, .periods = 12, .K = 1) %>%
+    #tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 1) %>%
+    #tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 2) %>%
+    tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 3) %>%
+    tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 4) %>%
+    # tk_augment_fourier(.date_var = mes, .periods = 6, .K = 2) %>%
+    # tk_augment_fourier(.date_var = mes, .periods = 12, .K = 1) %>%
     tk_augment_lags(.value = sentencias_dictadas, .lags = c(2,3,4,5,6,12,13)) %>%
     tk_augment_slidify(.value   = c(sentencias_dictadas_lag12, sentencias_dictadas_lag13),
                        .f       = ~ mean(.x, na.rm = TRUE), 
@@ -189,7 +203,7 @@ groups_fe_tbl <- bind_rows(groups) %>%
   rowid_to_column(var = "rowid")
 ```
 
-Como resultado de los nuevos features tenemos el siguiente dataset (últimas filas que corresponden con las fechas a futuro):
+El resultado de aplicar las transformaciones precedentes nos deja otro dataset (*aumentado*) con la siguiente conformación (vemos las últimas filas que corresponden con las fechas a futuro):
 
 ```{r}
 groups_fe_tbl %>% tail() %>% glimpse()
@@ -197,16 +211,15 @@ groups_fe_tbl %>% tail() %>% glimpse()
 
 # Prueba de significancia con modelo lineal
 
-Hacemos una rápida exploración a partir de una regresión lineal múltiple para ver qué tanto podemos modelar los datos con una aproximación lineal, que también nos dará un resultado de base para comparar los próximos modelos y una referencia de la importancia de los features generados. Advertimos que la transformación de Fourier y los Lags son muy significativas en este modelo (p_value < 0.05), aunque el modelo en general no sea bueno con un Adj-Rsq = 0.39. Esto definitivamente indica la oportunidad de mejorar la selección de variables, para obtener modelos más simples. Sin perjuicio de esta mala performance (lo que podría indicar tempranamente la necesidad de buscar mejores datos), seguiremos adelante con todos los features generados a ver si modelos de **machine learning** confirman o rechazan lo obtenido por el modelo lineal. 
+Hacemos una rápida exploración a partir de una regresión lineal múltiple para ver qué tanto podemos modelar los datos con una aproximación lineal, exploración que también nos dará un resultado de base para comparar los próximos modelos y una referencia de la importancia de los features generados. Advertimos que la transformación de Fourier y los Lags son significativas en este modelo (p_value < 0.05), aunque el modelo en general tenga un Adj-Rsq modesto de 0.65. Esto definitivamente indica la oportunidad de mejorar la obtención y selección de variables. Sin perjuicio de esta performance (lo que podría indicar tempranamente la necesidad de buscar mejores datos), seguiremos adelante con todos los features generados a ver si modelos de **machine learning** confirman o rechazan lo obtenido por el modelo lineal. 
 
 ```{r}
 model = lm(sentencias_dictadas ~., data = groups_fe_tbl )
-jtools::summ(model)
+jtools::summ(model, confint = TRUE)
+#summary(model)
 ```
 
-# Guardamos parametros de estandarización
-
-Estamos trabajando con datos correspondientes a múltiples materias y buscaremos predecir 8 series de tiempo, una para cada materia, lo que nos deja con 16 parámetros de estandarización (media, desviación estándar) para las series. Guardamos estos parámetros para un futuro retratamiento de los datos.   
+Antes de pasar al próximo paso vamos a guardar los parametros de estandarización de las series para futuro tratamientos. Estamos trabajando con datos correspondientes a múltiples materias y buscaremos predecir 8 series de tiempo (una para cada materia) lo que nos deja con 16 parámetros de estandarización (media, desviación estándar) para las series. Guardamos estos parámetros para un futuro retratamiento de los datos.   
 
 ```{r}
 tmp <- produccion_tbl %>%
@@ -262,7 +275,7 @@ Del gráfico se puede advertir, a simple vista, la dificultad de lograr modelar 
 
 # Creamos una receta para nuestros modelos
 
-La creación de una receta (mediante la función *recipe()*) es un paso importante para automatizar el trabajo con nuestros modelos y nos ayuda a manipular los datos de manera segura. La receta, al igual que una receta de cocina, es una especificación sobre cómo tratar los ingredientes -en este caso los datos- antes y durante la preparación de un plato -aquí un modelo predictivo-. La diferencia estaría dada en que, mediante la receta no se altera las datos originales, que siempre permenecen accesibles. Como se detalla en la [documentación](https://www.tidymodels.org/start/recipes/) de la librería *tidymodels* las recetas se construyen como una serie de pasos de preprocesamiento para  realizar las acciones de transformación pensando en lo que requieren los modelos con los que estoy entrenando. Entre ellas están:
+La creación de una receta (mediante la función *recipe()*) es un paso importante para automatizar el trabajo con nuestros modelos y nos ayuda a manipular los datos de manera segura. La receta, al igual que una receta de cocina, es una especificación sobre cómo tratar los ingredientes -en este caso los datos- antes y durante la preparación de un plato -aquí un modelo predictivo-. La diferencia estaría dada en que, mediante la receta no se altera las datos originales, que siempre permenecen accesibles. Como se detalla en la [documentación](https://www.tidymodels.org/start/recipes/) de la librería *tidymodels* las recetas se construyen como una serie de pasos de preprocesamiento para  realizar las acciones de transformación pensando en lo que requieren los modelos con los que estoy entrenando. Por ejemplo algunos modelos no toleran datos faltantes o bien datos categóricos o campos fecha, en tales casos mediante las funciones asociadas a *recipe()* se pueden excluir tales columnas de manera segura y práctica. Entre las posibilidades de tratamiento están:     
 
 - convertir predictores cualitativos en variables indicadoras (también conocidas como variables ficticias),   
 - transformar datos para que estén en una escala diferente (por ejemplo, tomando el logaritmo de una variable),    
@@ -296,7 +309,10 @@ recipe_spec %>%
   glimpse() 
 
 ```
-# Obtenemos los parámetros de la normalización min-max
+
+# Rescatamos los parámetros de la normalización min-max
+
+Obtenemos los parámetros del dataset original para la normalización min-max de las variables mes_index.num y mes_year.   
 
 ```{r}
 # mes_index.num and yar normalization Parameters
@@ -318,7 +334,7 @@ mes_year_limit_upper = norm_param$max[norm_param$skim_variable == "mes_year"]
 
 # Guardamos el trabajo
 
-Metemos los datos, recetas, divisiones y parámetros en una lista y la guardaremos como un archivo RDS.
+Finalmente metemos los datos, recetas, divisiones y parámetros en una lista y la guardaremos como un archivo RDS.
 
 ```{r}
 feature_engineering_artifacts_list <- list(
@@ -364,5 +380,7 @@ feature_engineering_artifacts_list %>%
 A lo largo del documento presentamos los primeros pasos en un *pipeline* para la creación de modelos predictivos de indicadores judiciales, en este caso *sentencias dictadas por materia*.    
 
 Hemos trabajando con el *framework* que nos brinda *tidymodels* y otras librerías importantes de R que manipulan series temporales. Con ello, hemos aumentado nuestros datos y probado la significancia de las nuevas variables.    
+
+Aplicamos una serie de transformaciones que tuvieron buenos resultados en la evaluación realizada en un modelo lineal de regresión múltiple, que llevaron a mejorar el R2-Ajustado de 0.4 a 0.65. Entre esas trasnformaciones la series de Fourier y los lags fueron los que tuvieron mayor valor predictivo.    
 
 En los próximos documentos avanzaremos en el armado de *workflows* de procesamiento con modelos de *machine learning*: alphabet, xgboost, random forest y ligthgbm. Luego seguiremos con el *tuneo de hiperparámetros* mediante optimizaciones bayesianas.  A no desesperar en el camino; una vez que se realiza no hay vuelta atrás :)
