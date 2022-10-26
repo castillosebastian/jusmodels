@@ -337,6 +337,9 @@ mes_year_limit_upper = norm_param$max[norm_param$skim_variable == "mes_year"]
 Finalmente metemos los datos, recetas, divisiones y parámetros en una lista y la guardaremos como un archivo RDS.
 
 ```{r}
+dir.create(paste0(HOME_DIR, "/exp/001/"), showWarnings = FALSE )
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/feature_engineering_artifacts_list.rds")
+
 feature_engineering_artifacts_list <- list(
   # Data
   data = list(
@@ -367,8 +370,6 @@ feature_engineering_artifacts_list <- list(
   )  
 )
 
-dir.create(paste0(HOME_DIR, "/exp/001/"), showWarnings = FALSE )
-archivo_salida  <-  paste0(HOME_DIR,"/exp/001/feature_engineering_artifacts_list.rds")
 
 feature_engineering_artifacts_list %>% 
   write_rds(archivo_salida)

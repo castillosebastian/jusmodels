@@ -25,11 +25,18 @@ groups <- lapply(X = 1:length(materia), FUN = function(x){
     filter(materia == materia[x]) %>%
     arrange(mes) %>%
     mutate(sentencias_dictadas =  log1p(x = sentencias_dictadas)) %>%
+    # estandarizacion
     mutate(sentencias_dictadas =  standardize_vec(sentencias_dictadas)) %>%
+    # agregamos meses a futuro
     future_frame(mes, .length_out = "12 month", .bind_data = TRUE) %>%
     mutate(materia = materia[x]) %>%
-    tk_augment_fourier(.date_var = mes, .periods = 12, .K = 1) %>%
-    tk_augment_lags(.value = sentencias_dictadas, .lags = c(12, 13 )) %>%
+    #tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 1) %>%
+    #tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 2) %>%
+    tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 3) %>%
+    tk_augment_fourier(.date_var = mes, .periods = c(2,3,4,6,12), .K = 4) %>%
+    # tk_augment_fourier(.date_var = mes, .periods = 6, .K = 2) %>%
+    # tk_augment_fourier(.date_var = mes, .periods = 12, .K = 1) %>%
+    tk_augment_lags(.value = sentencias_dictadas, .lags = c(2,3,4,5,6,12,13)) %>%
     tk_augment_slidify(.value   = c(sentencias_dictadas_lag12, sentencias_dictadas_lag13),
                        .f       = ~ mean(.x, na.rm = TRUE), 
                        .period  = c(3, 6, 9, 12),
