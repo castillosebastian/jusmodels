@@ -12,12 +12,7 @@ options(scipen = 999)
 
 # Load and transform
 produccion_tbl <- readRDS(paste0(RAW_DATA_DIR, "/produccion.rds")) %>% 
-  mutate(mes = ymd(str_c(año, mes, "-01"))) %>% 
-  filter(instancia == "Primera_Instancia", tproducto == "sentencias") %>% 
-  group_by(mes, materia) %>% 
-  summarise(sentencias_dictadas = sum(cantidad, na.rm = T)) %>% 
   mutate(materia = as.factor(materia)) %>% 
-  group_by(materia) %>% 
   tk_tbl()
 
 
