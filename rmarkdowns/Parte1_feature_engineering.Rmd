@@ -148,7 +148,7 @@ Vemos que la serie tiene, en efecto, estructura mensual (*scale* = month) y que 
 
 La creación de nuevas variables es una estrategia para explotar la información que contiene el dataset aumentando sus *señales* en relación a una variable de interés (en general el *target* del modelo). Las posibilidades aquí son inagotables: desde transformaciones lineales hasta creación de nuevas variables basadas en combinaciones aleatorias. En todos los casos el conocimiento del dominio puede ser determinante.    
 
-Como vemos en el siguiente gráfico, ésta actividad se encuentra en las primeras etapas del desarrollo de un *pipeline* para predicciones de series temporals (gráfico publicado en [Meisenbacher et all](https://wires.onlinelibrary.wiley.com/doi/full/10.1002/widm.1475). Esta estructura nos aporta una visión general del proyecto y representa una buena síntesis del desafío que enfrentamos.       
+Como vemos en el siguiente gráfico, ésta actividad se encuentra en las primeras etapas del desarrollo de un *pipeline* para predicciones de series temporals (gráfico publicado en [Meisenbacher et all](https://wires.onlinelibrary.wiley.com/doi/full/10.1002/widm.1475)). Esta estructura nos aporta una visión general del proyecto y representa una buena síntesis del desafío que enfrentamos.       
 
 ```{r, fig.height = 12, fig.width = 12, out.width='100%', echo=FALSE}
 knitr::include_graphics("~/jusmodels/rmarkdowns/forecast_pipeline.PNG")
