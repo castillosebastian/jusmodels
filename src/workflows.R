@@ -1,4 +1,8 @@
-# PART 1 -  FEATURE ENGINEERING
+# PART 2 WORKFLOWS
+#remotes::install_github("curso-r/treesnip")
+#install.packages("modeltime")
+#install.packages("ranger")
+
 pacman::p_load(tidyverse,
                timetk,
                tsibble,
@@ -6,6 +10,8 @@ pacman::p_load(tidyverse,
                fastDummies,
                skimr, 
                tidymodels, 
+               ranger,
+               lightgbm,
                modeltime, 
                treesnip # lightgbm
                )
@@ -19,7 +25,7 @@ artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/feature_engineering_artifacts_l
 
 splits            <- artifacts$splits
 recipe_spec       <- artifacts$recipes$recipe_spec
-Industries        <- artifacts$data$industries
+materia        <- artifacts$data$materia
 
 # ML model specification and engine
 # You will find in the figure below the specification and engine(s) for each of the 4 models used in this article.
@@ -37,7 +43,7 @@ wflw_fit_rf <- workflow() %>%
       set_engine("ranger")
   ) %>%
   add_recipe(recipe_spec %>% 
-               step_rm(Month)) %>%
+               step_rm(mes)) %>%
                fit(training(splits))
              
              
@@ -50,7 +56,7 @@ wflw_fit_xgboost <- workflow() %>%
       set_engine("xgboost")
   ) %>%
   add_recipe(recipe_spec %>% 
-               step_rm(Month)) %>%
+               step_rm(mes)) %>%
                fit(training(splits))
 
 # PROPHET ----
@@ -83,7 +89,7 @@ wflw_fit_prophet_boost <- workflow() %>%
 wflw_fit_ligthgbm <- workflow() %>%
   add_model(
     spec =  parsnip::boost_tree(
-      mtry = 5, 
+      mtry = 5,
       trees = 1000
     ) %>% 
       set_mode("regression") %>%

@@ -1,0 +1,11 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/961751/72497b1c8c3746b384c24dabb3c7ffab
+bundleId: https://api.rpubs.com/api/v1/document/961751/72497b1c8c3746b384c24dabb3c7ffab
+url: http://rpubs.com/cscastillo/961751
+when: 1666878797.35375
+lastSyncTime: 1666878797.35378

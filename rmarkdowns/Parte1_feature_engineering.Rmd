@@ -76,6 +76,8 @@ Para este ejemplo de implementación hemos generado un dataset de **sentencias m
 
 Las materias antes referidas se vinculan a órganos jurisdiccionales, así, por ejemplo, existen 38 juzgados con materia civil-comercial en la provincia, por lo que las sentencias de dicha materia refieren a la suma de la producción de los 38 juzgados. Para consultar extensamente la estructura y estadística pública judicial remitimos al link includio más arriba. Dicha información se registra digitalmente y es procesada por el Área de Planificación, Gestión y Estadística.
 
+Los datos temporalmente organizados constituyen una serie temporal y su análisis es un área de estudio en sí mismo. Para una buena aproximación remitimos a "Forecasting: Principles and Practice" (3rd ed), de Rob J Hyndman and George Athanasopoulos, accesible [aquí](https://otexts.com/fpp3/).    
+
 Leemos los datos: 
 
 ```{r}
@@ -101,20 +103,55 @@ El dataset tiene tres variables:
 
 ## Sentencias mensuales dictadas en Primera Instancia en el STJER 
 
-Veamos a continuación una serie temporal de todas las sentencias dictadas en el período. Para ello sumaremos todas las materias.   
+Veamos a continuación las series temporales por materia de las sentencias dictadas en el período.     
 
-```{r, fig.height = 6, fig.width = 8}
+```{r, fig.height = 12, fig.width = 10}
 produccion_tbl %>% 
-  group_by(mes) %>% summarise(sentencias_dictadas = sum(sentencias_dictadas, na.rm = T)) %>% 
-  na.omit() %>%
-  ggplot(aes(x=mes, y=sentencias_dictadas)) +
-  geom_line( color="steelblue") + 
-  geom_point() +
-  xlab("") +
-  theme(axis.text.x=element_text(hjust=1))
+  group_by(materia) %>% 
+  plot_time_series(mes, sentencias_dictadas,
+                   .facet_ncol = 2,
+                   .facet_scales = "free",
+                   .interactive = T)
 ```
 
-En el gráfico se ve cierta tendencia incipiente y la estacionalidad asociada a los periodos de actividad y recesos judiciales (que se extienden durante todo el mes de enero y mitad de julio). Estamos viendo 5 años dado que no se disponen de datos previos, lo cual es un límite importante a considerar en el análisis de la serie temporal. Vemos también la importante caida que tuvo el indicador en abril-mayo del año 2020 producto de la Pandemia COVID-19.       
+En el gráfico podrían verse tendencias positivas pronunciadas (eg.familia), tendencias casi estacionarias (civil-comercial) y tenencias negativas (paz_2_3). También podríamos agrupar las materias por similitud en su evolución, y así podríamos tratar de agrupar las siguientes materias: grupo1) familia, laboral y penal, grupo2) paz_1 y paz_2-3, y grupo3) contenc-adm, civil-comercial y quiebra-ejecuciones. Se ve también estacionalidad asociada a los periodos de actividad y recesos judiciales (que se extienden durante todo el mes de enero y mitad de julio). Estamos viendo 5 años dado que no se disponen de datos previos, lo cual es un límite importante a considerar en el análisis de la serie temporal. Vemos también la importante caida que tuvo el indicador en abril-mayo del año 2020 producto de la Pandemia COVID-19.       
+
+## Serie con ajuste estacional
+
+El presente gráfico muestra las series temporales con ajuste estacional donde buscamos resaltar la varición interanual seperándola de las fluctuaciones mensuales.   
+
+```{r}
+produccion_tbl %>% 
+  group_by(materia) %>% 
+  tk_stl_diagnostics(.date_var = mes, .value = sentencias_dictadas) %>% 
+  plot_time_series(mes, seasadj,
+                   .facet_ncol = 2,
+                   .facet_scales = "free",
+                   .interactive = T)
+```
+
+## Sentencias dictadas por trimestre
+
+Veamos ahora las sentencias totales agrupadas por trimestre. 
+
+```{r}
+produccion_tbl %>% 
+  group_by(mes) %>% summarise(sentencias_dictadas = sum(sentencias_dictadas)) %>% 
+  mutate(
+    quarter = str_c("Trimestre ", as.character(quarter(mes)))
+    ) %>%
+    plot_time_series(
+      .date_var = mes,
+      .value = sentencias_dictadas,
+      .facet_vars = quarter,
+      .facet_ncol = 4, 
+      .color_var = quarter, 
+      .facet_scales = "fixed",
+      .interactive = FALSE,
+      .legend_show = FALSE,
+      .title = "Seasonal Plot"
+      )
+```
 
 ## Sentencias mensuales por materia
 
@@ -129,6 +166,24 @@ produccion_tbl %>%
   labs(fill = "Circunscripcion", x = "Presentaciones Diarias") + 
   facet_wrap( ~ materia, scales = "free") +
   theme(strip.text.x = element_text(size = 16))
+  
+```
+
+## Autocorrelación
+
+Así como la correlación mide el alcance de una relación lineal entre dos variables, la autocorrelación mide la relación lineal entre los valores rezagados (lags) de una serie de tiempo. Por ese motivo evaluar la autocorrelación de las series temporales es un buen primer paso para desarrollar nuestra intuición acerca de las posibilidades de modelarlas.    
+
+Para exponerlo de manera simple el gráfico ACF (*Autocorrelation Function*) explica la correlación que existe entre el valor presente de nuestra variable de interés y su valor pasado (t-1, t-2...t-n). El gráfico ACF muestra sobre el eje y la correlación y en el eje x los lags. El gráfico PACF (*Partial autocorrelation function*) explica la correlación parcial entre la serie y los lags en sí.    
+
+En el caso que estudiamos, calculamos los lags de 24 meses. Vemos que aparece en la correlación la estacionalidad anual en muchas materias (ej. civil, familia, laboral). En otras, ese patrón no aparece y la correlación decrece gradualmente (ej. paz_2_3 y cont-adm). Esto claramente es un desafío importante para nuestros modeles, que deberán aprender a diferenciar el comportamiento de las distitas materias.    
+
+```{r}
+produccion_tbl %>%  
+  group_by(materia) %>% 
+  plot_acf_diagnostics(mes, sentencias_dictadas,
+                       .lags = 36,
+                       .facet_scales = "free",
+                       .interactive = T)
   
 ```
 

@@ -1,0 +1,254 @@
+---
+title: "Modelos predictivos en la justicia - Parte 2 "
+subtitle: "Workflows"
+author: "Claudio Sebastián Castillo"
+date: "`r format(Sys.Date(), '%d de %B de %Y') `"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    theme: united
+  pdf_document: default
+always_allow_html: true
+---
+<style> body {text-align: justify} </style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+knitr::opts_chunk$set(fig.align = "center", fig.height = 8, fig.width = 10)
+
+source("~/jusmodels/main.R")
+interactive <- FALSE
+
+# transformada de fourier: https://conceptosclaros.com/transformada-de-fourier/
+
+eval_models = FALSE
+
+```
+
+```{r, fig.height = 12, fig.width = 12, out.width='100%', echo=FALSE}
+knitr::include_graphics("~/jusmodels/rmarkdowns/rm373batch5-05.jpg")
+```
+
+# Introducción
+
+Este es el segundo documento de una serie dedicada al desarrollar modelos predictivos en el servicio de justicia. En esta serie abordamos la predicción de las sentencias que se dictarán a futuro; sin perjuicio de ello entendemos que con los ajustes del caso el *pipeline* de trabajo que describimos puede aplicarse a múltiples dominios.   
+
+El objetivo de este artículo de la serie es crear modelos de aprendizaje automático para datos temporales. Emplearemos la librería `modeltime` que se utiliza para integrar modelos según la lógica de programación de `tydimodels`.    
+
+Con esta implementación continuamos el workflow que vimos en la Parte 1 para el desarrollo de modelos predictivos, deteniéndonos en las especificaciones generales de cada modelo y la receta de preprocesamiento correspondiente. Recordemos que cada modelo exige cierta estructura en los datos de entrada, para lo cual la especificación que realizamos a través de la función `recipe` es fundamental. Además veremos las nociones de tabla de modelos y tabla de calibración que nos serán utiles para evaluar y pronosticar todos los modelos al mismo tiempo para las 8 series temporales que estamos tratando de modelar en este ejemplo (sentencias dictadas en cada materia). Finalmente, realizaremos algunos pronósticos en datos de testeo para tener una idea del ajuste de los modelos.    
+
+# Código y ambiente de trabajo en R
+
+Los scripts completos de esta implementación y los documentos RMarkdown que sirven a esta presentación puede accederse en mi repositorio de github [castillosebastian](https://github.com/castillosebastian/jusmodels.git). En el README de ese repositorio se puede encontrar un detalle de la configuración del ambiente de trabajo que he utilizado en el proyecto y recomendaciones para su instalación.    
+
+Como veremos más adelante, algunas partes de las operaciones de desarrollo de modelos (vinculadas a un pipeline de MLOps) requieren cierto *hardware* particular (sobretodo RAM y CPU). En nuestro caso hemos trabajado en un Centos 7, con 12 vCPU y 32G de RAM, y en ocasiones esos recursos fueron insuficientes, por lo que algo más de disponibilidad será de ayuda.   
+
+Respecto del *pipeline* de trabajo nos hemos apoyado exclusivamente en [R](https://www.r-project.org/), y particularmente en [tidymodels](https://www.tidymodels.org/), gracias al aprecio que tenemos por [tidyverse](https://www.tidyverse.org/). Este *framework* nos brinda toda una batería de herramientas que facilitan el trabajo y la experimentación, aspecto fundamental en el desarrollo de modelos de *machine learning*. Para culquiera intersado en él dirigirse aquí: https://www.tidymodels.org/.    
+
+El repositorio está armado de tal forma que los script puedan correrse de dos formas:   
+
+- a través se sus documentos RMarkdown, o
+- mediante lso script .R en /source.
+
+# Librerías 
+
+A continuación presentamos las librerías que emplearemos en este documento. Cada nueva publicación de la serie incluirá un detalle de sus recursos.    
+
+```{r}
+pacman::p_load(tidyverse,
+               timetk,
+               tsibble,
+               tsibbledata,
+               fastDummies,
+               skimr, 
+               ranger, 
+               lightgbm,
+               tidymodels, 
+               modeltime, # workflow 
+               treesnip, # lightgbm
+               kableExtra)
+
+options(scipen = 999)
+```
+
+# Generando modelos de Machine Learning
+
+Los pasos que daremos para la generación de los modelos serán los siguientes:
+
+1. Crearemos 4 [workflows](https://workflows.tidymodels.org/), uno por cada modelo que seleccionamos para resolver nuestro problema de predicción, fijando sus correspondientes especificaciones, algoritmo de implementación, receta de preprocesamiento y ajuste a los datos de entrenamiento según las particiones generadas en la primera parte,     
+2. Agregaremos los 4 *workflows* a una table de modelos y una tabla de calibración,   
+3. Evaluaremos los modelos a partir de ciertas métricas extendidas en ML, y    
+4. Realizaremos algunas predicciones con los datos de test, 
+
+# Abrimos los productos generados en la Parte 1
+
+Abrimos el dataset aumentado que generamos antes (`feature_engeniering.R`). 
+
+```{r}
+artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/feature_engineering_artifacts_list.rds"))
+splits            <- artifacts$splits
+recipe_spec       <- artifacts$recipes$recipe_spec
+materia        <- artifacts$data$materia
+rm(artifacts, recipe_spec, materia)
+```
+
+
+# Mostramos los workflows 
+
+Los *workflows* son objetos que guardan/agrupan distintas partes relativas a la generación de modelos. Son *contenedores* que guardan mucha información que de otro modo sería difícil de administrar, y saturaría nuestros ambientes de trabajo.    
+
+Para permitir que cualquier persona consultante pueda ejecutar este documento RMarkdown hemos suspendido su ejecución para evitar saturar la memoria disponible (`eval = eval_models`). Debe tenerse presente que generar todos los modelos para evaluar su performance en datos de testeo consume muchos recursos. Por ello la ejecución de los `workflows` la hemos separado de la ejecución de RMarkdown (sugerimos correr los scripts que están en `/source` independientemente de estos documentos).    
+
+## Random Forest
+
+Conocidos como *bosques aleatorios* este tipo de modelo se basa en la implementación de un conjunto (*bagging*) de *arboles de decisión*. Cada random forest -compuesto por múltiples arboles de decisión- se entrena en un subconjunto de datos (observaciones de nuestro dataset) aleatereamente seleccionados, y luego se combina los resultados de los modelos para obtener un resultado final. Mas sobre Random Forest puede verse [aquí](https://bradleyboehmke.github.io/HOML/random-forest.html). En nuestro caso utilizaremos la librería [`ranger`](https://github.com/imbs-hl/ranger). 
+
+
+```{r, eval = eval_models}
+wflw_fit_rf <- workflow() %>%
+  add_model(
+    spec = rand_forest(
+      mode = "regression"
+    ) %>% 
+      set_engine("ranger")
+  ) %>%
+  add_recipe(recipe_spec %>% 
+               step_rm(mes)) %>%
+               fit(training(splits))
+```
+
+## XGBoost
+
+Este modelo es un implementación del algoritmo Gradient Boosted Decision Trees (cuya traducción aproximada según google sería: *Árboles de decisión potenciados por gradientes*). Mientras que los bosques aleatorios construyen un conjunto de árboles independientes profundos, los algoritmos basados en Gradient Boosting construyen un conjunto de árboles poco profundos (pocas particiones) secuencialmente, donde cada nuevo modelo busca minimizar los errores de predicción (residuos) del anterior. Mas sobre xgboos puede verse [aquí](https://bradleyboehmke.github.io/HOML/gbm.html#xgboost).   
+
+```{r, eval = eval_models}
+wflw_fit_xgboost <- workflow() %>%
+  add_model(
+    spec = boost_tree(
+      mode = "regression"
+    ) %>%
+      set_engine("xgboost")
+  ) %>%
+  add_recipe(recipe_spec %>% 
+               step_rm(mes)) %>%
+               fit(training(splits))
+```
+
+## Prophet
+
+Prophet es un algoritmo desarrollado por científicos de Datos de META (puede verse la documentación [aquí](https://facebook.github.io/prophet/)) con una implementación en [R](https://cran.r-project.org/web/packages/prophet/index.html). Según mencionan sus creadores este algoritmo 
+está basado en un *modelo aditivo en el que las tendencias no lineales se ajustan a la estacionalidad anual, semanal y diaria. Funciona mejor con series temporales que tienen fuertes efectos estacionales y varias temporadas de datos históricos.* El paper del modelo puede verse [aquí](https://peerj.com/preprints/3190.pdf#pdfjs.action=download). 
+
+
+```{r, eval = eval_models}
+wflw_fit_prophet <- workflow() %>%
+  add_model(
+    spec = prophet_reg(
+      seasonality_daily  = FALSE, 
+      seasonality_weekly = FALSE, 
+      seasonality_yearly = TRUE
+    ) %>% 
+      set_engine("prophet")
+  ) %>%
+  add_recipe(recipe_spec) %>%
+  fit(training(splits))
+```
+
+## Prophet Boost
+
+```{r, eval = eval_models}
+wflw_fit_prophet_boost <- workflow() %>%
+  add_model(
+    spec = prophet_boost(
+      seasonality_daily  = FALSE, 
+      seasonality_weekly = FALSE, 
+      seasonality_yearly = FALSE
+    ) %>% 
+      set_engine("prophet_xgboost")
+  ) %>%
+  add_recipe(recipe_spec) %>%
+  fit(training(splits))
+```
+
+## Lightgbm
+
+```{r, eval = eval_models}
+wflw_fit_ligthgbm <- workflow() %>%
+  add_model(
+    spec =  parsnip::boost_tree(
+      mtry = 5, 
+      trees = 1000
+    ) %>% 
+      set_mode("regression") %>%
+      set_engine("lightgbm", 
+                 objective = "root_mean_squared_error")) %>%
+  add_recipe(recipe_spec) %>%
+  fit(training(splits))
+```
+
+# Abrimos las salidas de `/source/workflows.R`
+
+Hemos ejecutado el script ``/source/workflows.R` y generado todas sus salidas. Lo que mostramos a partir de esta parte del documento, fue procesado previamente, para permitir renderizar este documento RMarkdow por parte de cualquier persona que consulte el repositorio. 
+
+```{r}
+workflows_list <- read_rds(paste0(HOME_DIR,"/exp/001/workflows_artifacts_list.rds"))
+```
+
+## Tabla de Modelos
+
+```{r}
+modeltime_table(
+  workflows_list$workflows$wflw_random_forest,
+  workflows_list$workflows$wflw_xgboost,
+  workflows_list$workflows$wflw_prophet,
+  workflows_list$workflows$wflw_prophet_boost,
+  workflows_list$workflows$wflw_lightgbm) 
+```
+
+# Tabla de Calibración
+
+```{r}
+#Model Evaluation
+workflows_list$calibration$calibration_tbl %>%
+  modeltime_accuracy(testing(splits)) %>%
+  arrange(rmse) 
+```
+
+# Guardamos el trabajo
+
+Finalmente metemos los workflow y tabla de calibración en una lista y la guardaremos como un archivo RDS.
+
+```{r, eval = eval_models}
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/workflows_artifacts_list.rds")
+# Save your work
+workflow_artifacts <- list(
+
+  workflows = list(
+
+    wflw_random_forest = wflw_fit_rf,
+    wflw_xgboost = wflw_fit_xgboost,
+    wflw_prophet = wflw_fit_prophet,
+    wflw_prophet_boost = wflw_fit_prophet_boost,
+    wflw_lightgbm = wflw_fit_ligthgbm
+
+  ),
+
+  calibration = list(calibration_tbl = calibrated_wflws_tbl)
+
+)
+
+workflow_artifacts %>%
+  write_rds(archivo_salida)
+
+```
+
+# Conclusion
+
+A lo largo del documento presentamos los primeros pasos en un *pipeline* para la creación de modelos predictivos de indicadores judiciales, en este caso *sentencias dictadas por materia*.    
+
+Hemos trabajando con el *framework* que nos brinda *tidymodels* y otras librerías importantes de R que manipulan series temporales. Con ello, hemos aumentado nuestros datos y probado la significancia de las nuevas variables.    
+
+Aplicamos una serie de transformaciones que tuvieron buenos resultados en la evaluación realizada en un modelo lineal de regresión múltiple, que llevaron a mejorar el R2-Ajustado de 0.4 a 0.65. Entre esas trasnformaciones la series de Fourier y los lags fueron los que tuvieron mayor valor predictivo.    
+
+En los próximos documentos avanzaremos en el armado de *workflows* de procesamiento con modelos de *machine learning*: alphabet, xgboost, random forest y ligthgbm. Luego seguiremos con el *tuneo de hiperparámetros* mediante optimizaciones bayesianas.  A no desesperar en el camino; una vez que se realiza no hay vuelta atrás :)
