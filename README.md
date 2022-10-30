@@ -34,8 +34,10 @@ Este es un repositorio que contiene el pipeline completo para desarrollar modelo
 ## Bibliografía empleada
 
 - time_series: [1](https://otexts.com/fpp3/), [2](https://wires.onlinelibrary.wiley.com/doi/epdf/10.1002/widm.1475)
+- fourier series: [1](https://conceptosclaros.com/transformada-de-fourier/)
 - custom metric functions: [1](https://towardsdatascience.com/custom-loss-functions-for-gradient-boosting-f79c1b40466d),[2](https://github.com/manifoldai/mf-eng-public/blob/master/notebooks/custom_loss_lightgbm.ipynb),
 - metric: [binary_logloss](https://towardsdatascience.com/intuition-behind-log-loss-score-4e0c9979680a#:~:text=Log%2Dloss%20is%20indicative%20of,is%20the%20log%2Dloss%20value.)
 - hpyer parameters optimization grid: [1](https://github.com/Microsoft/LightGBM/issues/695)  
 - ACF/PACF: [1](https://towardsdatascience.com/identifying-ar-and-ma-terms-using-acf-and-pacf-plots-in-time-series-forecasting-ccb9fd073db8)
 - xgboost: [1](https://towardsdatascience.com/machine-learning-part-18-boosting-algorithms-gradient-boosting-in-python-ef5ae6965be4)
+- lightgbm: [1](https://proceedings.neurips.cc/paper/2017/file/6449f44a102fde848669bdd9eb6b76fa-Paper.pdf), [2](https://lightgbm.readthedocs.io/en/v3.3.2/),  [3](https://towardsdatascience.com/lightgbm-vs-xgboost-which-algorithm-win-the-race-1ff7dd4917d)

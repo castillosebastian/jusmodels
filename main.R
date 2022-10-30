@@ -1,6 +1,6 @@
 # principal
 if (!require("pacman")) install.packages("pacman")
-pacman::p_load(tidyverse, data.table, dtplyr, log4r,
+pacman::p_load(tidyverse, data.table, dtplyr, here,
                lubridate, Rcpp, yaml, rlist, ggplot2, rmarkdown,
                ROCR, methods, Matrix, caret, rsample, renv)
 
