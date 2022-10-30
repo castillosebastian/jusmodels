@@ -1,6 +1,11 @@
 # Justmodels 
 
-Este es un repositorio que contiene el pipeline completo para desarrollar modelos predictivos en series temporales. En el caso particular que sirve de ejemplo (ver documentación en la carpeta *rmardowns* o en mi [webpage](https://castillosebastian.github.io/)) empleamos datos del servicio de justicia. 
+Este es un repositorio que contiene el pipeline completo para implementar modelos de *machine learning* para predecir series temporales. En el caso particular que sirve de ejemplo (ver documentación en la carpeta `/rmardowns` o en mi [webpage](https://castillosebastian.github.io/)) empleamos datos del servicio de justicia. 
+
+El repo puede consultarse de dos formas:
+
+- a través de sus documentos RMarkdowns, o
+- mediante los scripts de R.
 
 ## Estructura del Projecto
 
@@ -8,6 +13,7 @@ Este es un repositorio que contiene el pipeline completo para desarrollar modelo
 - data    - dataset de sentencias dictadas por materia en primera instancia 				
 - src     - script para ejecución en serie del pipeline completo 
 - exp     - experimentos corridos en el desarrollo de modelos. Iniciamos repo con 1.
+- env     - carpeta de configuración de ambiente
 ```
 
 ## Pasos para su ejecución
@@ -21,9 +27,9 @@ Este es un repositorio que contiene el pipeline completo para desarrollar modelo
         > renv::init()
         > renv::use_python()
 
-3. Dataset 
+3. Dataset: el repo viene con datos de ejemplo pero está pensado para correr con cualquier set de datos. 
 
-        > HOME_DIR /data o descargar ej.mainR
+        > /data o descargar (ver ejemplo en main.R)
 
 4. Correr `<PROJECT_HOME>/main.R` para setear variables y path
 
