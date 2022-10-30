@@ -1,5 +1,3 @@
-<img src="./data-science.png" width="200" height="200" />
-
 # Justmodels 
 
 Este es un repositorio que contiene el pipeline completo para desarrollar modelos predictivos en series temporales. En el caso particular que sirve de ejemplo (ver documentación en la carpeta *rmardowns* o en mi [webpage](https://castillosebastian.github.io/)) empleamos datos del servicio de justicia. 
