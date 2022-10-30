@@ -1,0 +1,735 @@
+---
+title: "Modelos predictivos en la justicia - Parte 3 "
+subtitle: "Hyperparameter Tuning"
+author: "Claudio Sebastián Castillo"
+date: "`r format(Sys.Date(), '%d de %B de %Y') `"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    theme: united
+  pdf_document: default
+always_allow_html: true
+---
+<style> body {text-align: justify} </style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+knitr::opts_chunk$set(fig.align = "center", fig.height = 8, fig.width = 10)
+
+source("~/jusmodels/main.R")
+
+interactive <- FALSE
+
+eval_models = FALSE
+
+```
+
+```{r, fig.height = 12, fig.width = 12, out.width='100%', echo=FALSE}
+knitr::include_graphics("~/jusmodels/rmarkdowns/close-up-hands-of-unrecognizable-mechanic-doing-car-service-and-maintenance.jpg")
+```
+
+# Introducción
+
+Este es el tercer documento de una serie dedicada al desarrollar modelos predictivos en el servicio de justicia. En esta serie abordamos la predicción de las sentencias que se dictarán a futuro, sin perjuicio de lo cual entendemos que con los ajustes del caso el *pipeline* de trabajo que describimos puede aplicarse a otros tipos de predicciones.      
+
+El objetivo de este artículo de la serie es explicar el proceso de ajuste de hiperparámetros para los modelos de aprendizaje automático vistos en el documento 2, a saber: Random Forest, XGBoost, Prophet y Prophet Boost, y finalmente Lightgbm. Con esta implementación continuamos el *pipeline* de trabajo, buscando mejorar la configuración de nuestros modelos para dotarlos de mayor capacidad de aprendizaje y más precisión en las predicciones.   
+
+# Código y ambiente de trabajo en R
+
+Los scripts completos de esta implementación y los documentos RMarkdown que sirven a esta presentación puede accederse en mi repositorio de github [castillosebastian](https://github.com/castillosebastian/jusmodels.git). En el README de ese repositorio se puede encontrar un detalle de la configuración del ambiente de trabajo que he utilizado en el proyecto y recomendaciones para su instalación.    
+
+Como veremos más adelante, algunas partes de las operaciones de desarrollo de modelos (vinculadas a un pipeline de MLOps) requieren cierto *hardware* particular (sobretodo RAM y CPU). En nuestro caso hemos trabajado en un Centos 7, con 12 vCPU y 32G de RAM, y en ocasiones esos recursos fueron insuficientes, por lo que algo más de disponibilidad será de ayuda.   
+
+Respecto del *pipeline* de trabajo nos hemos apoyado exclusivamente en [R](https://www.r-project.org/), y particularmente en [tidymodels](https://www.tidymodels.org/), gracias al aprecio que tenemos por [tidyverse](https://www.tidyverse.org/). Este *framework* nos brinda toda una batería de herramientas que facilitan el trabajo y la experimentación, aspecto fundamental en el desarrollo de modelos de *machine learning*. Para culquiera intersado en él dirigirse aquí: https://www.tidymodels.org/.    
+
+El repositorio está armado de tal forma que los script puedan correrse de dos formas:   
+
+- a través se sus documentos RMarkdown que están en la carpeta `/rmarkdowns`, o
+- mediante lso script .R en `/source`.
+
+# Librerías 
+
+A continuación presentamos las librerías que emplearemos en este documento. Cada nueva publicación de la serie incluirá un detalle de sus recursos.    
+
+```{r}
+pacman::p_load(tidyverse,
+               timetk,
+               tsibble,
+               tsibbledata,
+               fastDummies,
+               skimr, 
+               tidymodels, 
+               modeltime,
+               lightgbm,
+               future, 
+               doFuture,
+               plotly,
+               treesnip, 
+               tune,
+               kableExtra, 
+               plotly)
+options(scipen=999)
+options(tidymodels.dark = TRUE)
+```
+
+# Abrimos los productos generados en la Parte 1 y 2
+
+Abrimos los objetos que generamos en el `feature_engeniering` y en `workflows`.    
+
+```{r}
+# Load data y process enviroment----------
+artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/feature_engineering_artifacts_list.rds"))
+splits            <- artifacts$splits
+recipe_spec       <- artifacts$recipes$recipe_spec
+materia        <- artifacts$data$materia
+
+wflw_artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/workflows_artifacts_list.rds"))
+```
+
+# Que es el tuneo de hyperparámetros?
+
+El *tuneo de hyperparámetros* es la búsqueda de la configuración más efectiva de nuestro modelo para realizar la tarea para la cual lo estamos entrenando. Haciendo una simplificación extrema, el *machine learning* implica dos cosas sin las cuales no hay aprendizaje: datos y algoritmos. En efecto, el dominio de los datos es el dominio de la información disponible y las formas de representarla, manipularla, enriquecerla. Como vimos en el [primer documento de la serie](https://rpubs.com/cscastillo/961751) nuestro dataset inicial tenía 3 variables (fecha, materia y sentencias_dictadas) y mediante transformaciones lo llevamos a 59. Imagínense lo que podría lograrse con un dataset de 100 o más variables. Y ¿porqué podría ser relevante el número de variables? Muy sencillo, por un lado hay cada vez más información disponible. Aún recortando los problemas por razones metodológicas o epistemológicas no es raro encontrarnos con un rico abanico de variables de interés para investigar aquellos problemas que valen la pena. Por el otro, dado que buscamos generar conocimiento no disponible, respuestas a preguntas que aguardan solución, al iniciar una investigación es bueno mantener una *actitud experimental* y sostener todas las hipótesis plausibles abiertas. Este espacio de hipótesis guiará la construcción de nuestro espacio de predictores (las columnas del dataset), espacio que -a priori- no viene con una indicación de su valor predictivo. Para comprender el valor predictivo necesitamos -precisamente- hacer predicciones: experimentar! Mágica palabra que bien debería ser la letra chica debajo de cada aparición del concepto de *machine learning*.     
+
+Junto al dominio de los datos está el dominio de los algoritmos, y entre ambos establecen una relación de codeterminación. En efecto, nuevas formas de representar datos (pensemos en vectores, matrices, datasets, tensores, etc) plantean la necesidad de nuevas rutinas para su tratamiento y análisis. Rutinas que, conforme crece la complejidad de los objetos, crecen en la complejidad de su arquitectura. En este sentido, los algoritmos de *machine learning* suponen muchas decisiones de configuración que se operacionalizan a través de parámetros. Y las combinaciones posibles de tales parámetros también constituyen un espacio de hipótesis a explorar.     
+
+Entonces, volviendo a lo nuestro, esta necesidad de exploración y experimentación inherente al *machine learning* (y al aprendizaje en general), se cumple en gran medida -aunque no exclusivamente- en el *tuneo de hiperparámetros*. Para llevar a cabo esta tarea, existe mucho material disponible y recursos para probar, aunque como resulta de una actividad eminentemente experimental difícilmente escapemos a *ensuciarnos las manos* nosotros mismos.      
+
+# Procedimiento de Validación
+
+Emplearemos el método *K-Fold Cross-Validation* que consiste en dividir los datos de forma aleatoria en *k* grupos de aproximadamente el mismo tamaño, k-1 grupos se emplean para entrenar el modelo y uno de los grupos se emplea como validación. Este proceso se repite k veces utilizando un grupo distinto como validación en cada iteración. El proceso genera k estimaciones del error cuyo promedio se emplea como estimación final. Este es un apecto fundamental en el desarrollo de modelos predictivos (ver [aquí](https://bradleyboehmke.github.io/HOML/process.html)).          
+
+
+```{r, eval = eval_models}
+set.seed(123)
+resamples_kfold <- training(splits) %>% vfold_cv(v = 5)
+
+```
+
+# Procesamiento en Paralelo
+
+Es una técnica que optimiza el tiempo y recursos disponibles para entrenar nuestro modelos distribuyendo las tareas secuenciales en tareas en paralelo asignadas a distintas unidad de cómputo. Esta adaptación en la ejecución de los modelos puede efectuarse de manera sencilla y muchos de los algoritmos presentados en esta serie tiene esa posibilidad. No obstante ello, es conveniente verificar si las implementaciones que utilizamos admiten esta forma de ejecución antes de recibir horribles errores de procesamiento.     
+
+```{r, eval = eval_models}
+# Registers the doFuture parallel processing
+registerDoFuture()
+
+# detect CPU / threads (or vCores)
+n_cores <- parallel::detectCores()
+```
+
+# Inicio de la exploración mediante Optimización Bayesiana
+
+En lo que sigue realizaremos una serie de experimentos con el fin de ilustrar el procedimiento de búsqueda de los hiperparámetros óptimos para nuestro modelo aplicado. Para dicha búsqueda hemos elegido el método de *optimización bayesiana*, método que merecería su propia serie de documentos explicativos y ejemplos dada su belleza y robustez, pero que dejaremos para otra oportunidad. Para una introducción puede consultarse [aquí](https://arxiv.org/abs/1807.02811). 
+
+## Prophet Boost
+
+Corroboramos los parámetros que pueden ajustarse según la documentación del algoritmo que estamos trabajando. Es fundamental tener la documentación revisada y a manos. 
+
+### Configuramos parámetros del modelo y la optimización
+
+```{r, eval = eval_models}
+model_spec_prophet_boost_tune <- prophet_boost(
+  mode = "regression",
+  # growth = NULL,
+  changepoint_num = tune(), # important parameter
+  prior_scale_changepoints = tune(), # ver: probar recommended tuning range is 0.001 to 0.5
+  #changepoint_range = NULL,
+  seasonality_yearly = FALSE,
+  seasonality_weekly = FALSE,
+  seasonality_daily = FALSE,
+  trees = tune(),
+  mtry = tune(),
+  min_n = tune(),
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  # sample_size = NULL,
+  # stop_iter = NULL
+  ) %>%
+  set_engine("prophet_xgboost")
+```
+
+Creamos, un vez más, el *workflow* de trabajo con el modelo creado y la receta (*recipe*) que hemos establecido antes. 
+
+```{r, eval = eval_models}
+wflw_spec_prophet_boost_tune <- workflow() %>%
+  add_model(model_spec_prophet_boost_tune) %>%
+  add_recipe(artifacts$recipes$recipe_spec)
+```
+
+```{r, eval = eval_models}
+# Activamos opción de paralelizar cuando sea posible descomentar
+# plan(strategy = cluster, workers  = parallel::makeCluster(n_cores))
+```
+
+```{r}
+# Se ejecuta cuando se corren los modelos por primera vez.
+# Ahora, se está levantando resultados de una ejecución previa
+if(!eval_models){
+  tuned_prophet_xgb <- read_rds(paste0(HOME_DIR, "/exp/001/tuned_prophet_xgb.rds"))
+  wflw_spec_prophet_boost_tune = tuned_prophet_xgb$tune_wkflw_spec
+  tune_results_prophet_boost_1 = tuned_prophet_xgb$tune_results$round1
+  
+}
+```
+
+Controlamos los parámetros requeridos del modelo y verificamos que no falte ninguno. Cuando falta configuración de algun parámetro se marca la salida con `[?]`.
+
+```{r}
+prophet_boost_set_1 <- extract_parameter_set_dials(wflw_spec_prophet_boost_tune)
+prophet_boost_set_1
+```
+Podemos configurar el rango de búsqueda si tenemos información de otros ensayos o bibliografía que haya tratado un problema como el que tenemos y haya establecidio alguna referencia sobre mejores hiperparámetros. 
+
+```{r, eval=eval_models}
+prophet_boost_set_1 <- prophet_boost_set_1 %>%
+  update(mtry = mtry(c(5, 45)))
+```
+
+### Corremos la optimización bayesiana
+
+Según los parámetros del modelo y los parámetros de la optimización la duración de la ejecución puede durar unos minutos o muchas horas. Aquí es importante contar con una infraestructura adecuada, e inclusive un mejor contexto de ejecución del script antes que los documentos RMarkdown sería un `[Background Jobs]` de R.
+
+```{r, eval= eval_models}
+tune_results_prophet_boost_1 <- wflw_spec_prophet_boost_tune %>%
+  tune_bayes(
+    resamples = resamples_kfold,
+    # To use non-default parameter ranges
+    param_info = prophet_boost_set_1,
+    # Generate semi-random to start
+    initial = 10, # prophet_boost_initial is in garbage
+    iter = 10,
+    # How to measure performance? RSME raiz cuadrada del error cuadrado medio y R2 % de variabilidad
+    metrics = metric_set(rmse, rsq),
+    control = control_bayes(no_improve = 30, verbose = TRUE) # No parelelizable: ha confirmar
+  )
+```
+
+```{r}
+# Cuando corrimos en paralelo luego se pude desactivar. Descomentar cuando corresponda
+# plan(strategy = sequential)
+```
+
+### Resultados de la optimización
+
+*RMSE*
+
+```{r}
+# Resultados
+tune_results_prophet_boost_1 %>% 
+  tune::show_best("rmse", n = Inf) %>% select(1:12) %>% 
+  kable() %>% kable_styling()
+```
+
+*RSQ* 
+
+```{r}
+tune_results_prophet_boost_1 %>% 
+  show_best("rsq", n = Inf) %>% select(1:12) %>% 
+  kable() %>% kable_styling()
+```
+
+### Graficamos
+
+```{r}
+# Gráficos
+gr1<- tune_results_prophet_boost_1 %>%
+  autoplot() +
+  geom_smooth(se = FALSE)
+ggplotly(gr1)
+```
+
+### Evaluamos e Iniciamos nueva optimización
+
+Los resultados de la primera *bayesiana* nos van a servir para configurar *sucesivas bayesiana* que exploren nuevas configuración de hiperparámetros. Configuraciones que restrinjan o expandan el espacio de búsqueda según los resultados converjan hacia mejores valores en las métricas de evaluación. Por ejemplo, mejoras en las métricas de RSME y RSQ es una indicación para ajustar el rango de parámetros en el espacio donde el modelo tiene los mejores resultados.    
+
+### Ajustamos el mejor modelo de las n rondas de optmización
+
+```{r}
+set.seed(123)
+wflw_fit_prophet_boost_tuned <- wflw_spec_prophet_boost_tune %>%
+  finalize_workflow(
+    select_best(tune_results_prophet_boost_1, "rmse", n=1)) %>%
+  fit(training(splits))
+```
+
+### Evaluamos resultado final
+
+```{r}
+modeltime_table(wflw_fit_prophet_boost_tuned) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy() %>% kable() %>% kable_styling()
+```
+### Guardamos resultado
+
+```{r, eval=eval_models}
+## Save Prophet Boot tuning artifacts------
+tuned_prophet_xgb <- list(
+  
+  # Workflow spec
+  tune_wkflw_spec = wflw_spec_prophet_boost_tune, # best model workflow
+ 
+  tune_bayes_param_set = list(
+    round1 = prophet_boost_set_1
+    ),
+  # Tuning Results
+  tune_results = list(
+    round1 = tune_results_prophet_boost_1
+    ),
+  # Tuned Workflow Fit
+  tune_wflw_fit = wflw_fit_prophet_boost_tuned,
+  # from FE
+  splits        = artifacts$splits,
+  data          = artifacts$data,
+  recipes       = artifacts$recipes,
+  standardize   = artifacts$standardize,
+  normalize     = artifacts$normalize
+  
+)
+
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/tuned_prophet_xgb.rds")
+
+tuned_prophet_xgb %>% 
+  write_rds(archivo_salida)
+```
+
+## XGBoost
+
+Repetimos el flujo de trabajo del primer modelo.
+
+```{r, eval = eval_models}
+model_spec_xgboost_tune <- parsnip::boost_tree(
+  mode = "regression",
+  trees = 1000,
+  min_n = tune(),
+  tree_depth = tune(),
+  learn_rate = tune(),
+  loss_reduction = tune(),
+  mtry = tune()
+  ) %>%
+  set_mode("regression") %>% 
+  set_engine("xgboost")
+
+wflw_spec_xgboost_tune <- workflow() %>%
+  add_model(model_spec_xgboost_tune) %>%
+  add_recipe(artifacts$recipes$recipe_spec %>% 
+               step_rm(mes)) # https://stackoverflow.com/questions/72548979/my-parsnip-models-doesnt-work-in-modeltime-calibrate-function-after-updating-pa
+
+## Round 1: 
+xgboost_set <- extract_parameter_set_dials(model_spec_xgboost_tune)
+
+xgboost_set_1 <-
+  xgboost_set %>%
+  update(mtry = mtry(c(5, 45)))
+
+tune_results_xgboost_1 = wflw_spec_xgboost_tune %>% 
+  tune_bayes(
+  resamples = resamples_kfold,
+  # To use non-default parameter ranges
+  param_info = xgboost_set_1,
+  # Generate semi-random to start
+  initial = 10, # prophet_boost_initial is in garbage
+  iter = 5,
+  # How to measure performance? RSME raiz cuadrada del error cuadrado medio y R2 % de variabilidad
+  metrics = metric_set(rmse, rsq),
+  control = control_bayes(no_improve = 30, verbose = TRUE, parallel_over =  'everything') # acá también se puede paralelizar
+)
+
+tune_results_xgboost_1 %>% 
+  show_best("rmse", n = Inf)
+
+tune_results_xgboost_1 %>% 
+  show_best("rsq", n = Inf)
+
+```
+
+```{r, eval= eval_models}
+gr1<- tune_results_xgboost_1 %>%
+  autoplot() +
+  geom_smooth(se = FALSE)
+ggplotly(gr1)
+```
+
+**RMSE**
+
+```{r, eval= eval_models}
+# Fitting round 3 best RMSE model -----
+set.seed(123)
+wflw_fit_xgboost_tuned <- wflw_spec_xgboost_tune %>%
+  finalize_workflow(
+    select_best(tune_results_xgboost_1, "rmse", n=1)) %>%
+  fit(training(splits))
+
+modeltime_table(wflw_fit_xgboost_tuned) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy()
+```
+
+**RSQ**
+
+```{r, eval= eval_models}
+# Fitting round 3 best RSQ model
+wflw_fit_xgboost_tuned_rsq <- wflw_spec_xgboost_tune %>%
+  finalize_workflow(
+    select_best(tune_results_xgboost_1, "rsq", n=1)) %>%
+  fit(training(splits))
+
+modeltime_table(wflw_fit_xgboost_tuned_rsq) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy()
+```
+
+Guardamos los resultados
+
+```{r, eval= eval_models}
+## Save Prophet Boot tuning artifacts------
+tuned_xgboost <- list(
+  
+  # Workflow spec
+  tune_wkflw_spec = wflw_spec_xgboost_tune, # best model workflow
+  # Grid spec
+  tune_bayes_param_set = list(
+    round1 = xgboost_set_1),
+  # Tuning Results
+  tune_results = list(
+    round1 = tune_results_xgboost_1),
+  # Tuned Workflow Fit
+  tune_wflw_fit = wflw_fit_xgboost_tuned,
+  # from FE
+  splits        = artifacts$splits,
+  data          = artifacts$data,
+  recipes       = artifacts$recipes,
+  standardize   = artifacts$standardize,
+  normalize     = artifacts$normalize
+  
+)
+
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/tuned_xgboost.rds")
+
+tuned_xgboost %>% 
+  write_rds(archivo_salida)
+```
+
+## Lightgbm
+
+Repetimos el flujo de trabajo del primer modelo.
+
+```{r, eval = eval_models}
+
+model_spec_lightgbm_tune <- parsnip::boost_tree(
+  mtry = tune(),
+  trees = 100,
+  min_n = tune(),
+  tree_depth = tune(),
+  loss_reduction = tune(),
+  learn_rate = tune()) %>% # ojo la configuracion de este parámetro x transformacion log10 https://dials.tidymodels.org/reference/learn_rate.html#ref-examples
+  set_mode("regression") %>%
+  set_engine("lightgbm", objective = "root_mean_squared_error") 
+
+
+wflw_spec_lightgbm_tune <- workflow() %>%
+  add_model(model_spec_lightgbm_tune) %>%
+  add_recipe(artifacts$recipes$recipe_spec)
+
+## Round 1: ----------------------------------------------
+# plan(strategy = cluster, workers  = parallel::makeCluster(n_cores)) # ojo no se puede paralelizar. Pruebo 6vCPU
+
+lightgbm_set <- extract_parameter_set_dials(wflw_spec_lightgbm_tune)
+
+lightgbm_set_1 <-
+  lightgbm_set %>%
+  recipes::update(mtry = mtry(c(1L,30L)))
+
+tune_results_lightgbm_boost_1 <- wflw_spec_lightgbm_tune %>%
+  tune_bayes(
+    resamples = resamples_kfold,
+    # To use non-default parameter ranges
+    param_info = lightgbm_set_1,
+    # Generate semi-random to start
+    initial = 10,
+    iter = 10,
+    # How to measure performance?
+    metrics = metric_set(rmse, rsq),
+    control = control_bayes(no_improve = 30, verbose = TRUE, parallel_over =  'everything')
+  )
+
+# pasamos a procesamiento sec
+#plan(strategy = sequential)
+```
+
+```{r, eval = eval_models}
+tune_results_lightgbm_boost_1 %>% 
+  show_best("rmse", n = Inf)
+
+tune_results_lightgbm_boost_1 %>% 
+  show_best("rsq", n = Inf)
+```
+
+```{r, eval = eval_models}
+gr1<- tune_results_lightgbm_boost_1 %>%
+  autoplot() +
+  geom_smooth(se = FALSE)
+ggplotly(gr1)
+```
+
+**RSE**
+
+```{r, eval = eval_models}
+# Fitting the best model------------
+set.seed(123)
+wflw_fit_lightgbm_tuned <- wflw_spec_lightgbm_tune %>%
+  finalize_workflow(
+    select_best(tune_results_lightgbm_boost_1, "rmse", n=1)) %>%
+  fit(training(splits))
+
+modeltime_table(wflw_fit_lightgbm_tuned) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy()
+```
+
+**RSQ**
+
+```{r, eval = eval_models}
+# Fitting the best model------------
+set.seed(123)
+# Fitting round 3 best RSQ model
+wflw_fit_lightgbm_tuned_rsq <- wflw_spec_lightgbm_tune %>%
+  finalize_workflow(
+    select_best(tune_results_lightgbm_boost_1, "rsq", n=1)) %>%
+  fit(training(splits))
+
+modeltime_table(wflw_fit_lightgbm_tuned_rsq) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy()
+```
+
+Guardamos los resultados
+
+```{r, eval = eval_models}
+## Save ligthgbm tuning artifacts------
+tuned_lightgbm <- list(
+  
+  # Workflow spec
+  tune_wkflw_spec = wflw_spec_lightgbm_tune, # best model workflow
+  # Tune spec
+  tune_bayes_param_set = list(
+    round1 = lightgbm_set_1),
+  # Tuning Results
+  tune_results = list(
+    round1 = tune_results_lightgbm_boost_1),
+  # Tuned Workflow Fit
+  tune_wflw_fit = wflw_fit_lightgbm_tuned,
+  # from FE
+  splits        = artifacts$splits,
+  data          = artifacts$data,
+  recipes       = artifacts$recipes,
+  standardize   = artifacts$standardize,
+  normalize     = artifacts$normalize
+)
+
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/tuned_lightgbm.rds")
+
+tuned_lightgbm %>% 
+  saveRDS(archivo_salida) # ojo saveRDS sino errores de calibracion
+```
+
+## Random Forest
+
+Repetimos el flujo de trabajo del primer modelo.
+
+```{r, eval = eval_models}
+
+model_spec_random_forest_tune <- rand_forest(
+      mtry = tune(),
+      trees = tune(),
+      min_n = tune()
+      ) %>%
+  set_mode("regression") %>% 
+  set_engine("ranger") 
+
+wflw_spec_random_forest_tune <- workflow() %>%
+  add_model(model_spec_random_forest_tune) %>%
+  add_recipe(artifacts$recipes$recipe_spec %>% 
+               step_rm(mes)) 
+
+random_forest_set <- extract_parameter_set_dials(model_spec_random_forest_tune)
+
+random_forest_set_1 <-
+  random_forest_set %>%
+  update(mtry = mtry(c(1, ncol(splits$data))))
+
+tune_results_random_forest_1 = wflw_spec_random_forest_tune %>% 
+  tune_bayes(
+    resamples = resamples_kfold,
+    # To use non-default parameter ranges
+    param_info = random_forest_set_1,
+    # Generate semi-random to start
+    initial = 7, 
+    iter = 5,
+    # How to measure performance? RSME raiz cuadrada del error cuadrado medio y R2 % de variabilidad
+    metrics = metric_set(rmse, rsq),
+    control = control_bayes(no_improve = 30, verbose = TRUE, parallel_over =  'everything') # acá también se puede paralelizar
+  )
+
+```
+
+
+```{r, eval = eval_models}
+tune_results_random_forest_1 %>% 
+  show_best("rmse", n = Inf)
+
+tune_results_random_forest_1 %>% 
+  show_best("rsq", n = Inf)
+```
+
+
+```{r, eval = eval_models}
+gr1- tune_results_random_forest_1 %>%
+  autoplot() +
+  geom_smooth(se = FALSE)
+ggplotly(gr1)
+```
+
+**RSE** 
+
+```{r, eval = eval_models}
+# Fitting round 3 best RMSE model -----
+set.seed(123)
+wflw_fit_random_forest_tuned <- wflw_spec_random_forest_tune %>%
+  finalize_workflow(
+    select_best(tune_results_random_forest_1, "rmse", n=1)) %>%
+  fit(training(splits))
+
+modeltime_table(wflw_fit_random_forest_tuned) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy()
+```
+
+**RSQ**
+
+```{r, eval = eval_models}
+# Fitting round 3 best RSQ model
+wflw_fit_random_forest_tuned_rsq <- wflw_spec_random_forest_tune %>%
+  finalize_workflow(
+    select_best(tune_results_random_forest_1, "rsq", n=1)) %>%
+  fit(training(splits))
+
+modeltime_table(wflw_fit_random_forest_tuned_rsq) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy()
+```
+
+Guardamos los resultados
+
+```{r, eval = eval_models}
+tuned_random_forest <- list(
+  
+  # Workflow spec
+  tune_wkflw_spec = wflw_spec_random_forest_tune, # best model workflow
+  # Grid spec
+  tune_bayes_param_set = list(
+    round1 = random_forest_set_1
+  ),
+  # Tuning Results
+  tune_results = list(
+    round1 = tune_results_random_forest_1
+  ),
+  # Tuned Workflow Fit
+  tune_wflw_fit = wflw_fit_random_forest_tuned,
+  # from FE
+  splits        = artifacts$splits,
+  data          = artifacts$data,
+  recipes       = artifacts$recipes,
+  standardize   = artifacts$standardize,
+  normalize     = artifacts$normalize
+  
+)
+
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/tuned_random_forest.rds")
+
+tuned_random_forest %>% 
+  write_rds(archivo_salida)
+```
+
+Fin del trabajo de búsqueda de los mejores modelos con sus respectivos hiperparámetros y el ulterior ajuste a datos de entrenamiento.   
+
+# Tabla de modelos tuneados
+
+```{r, eval = eval_models}
+submodels_tbl <- modeltime_table(
+  wflw_artifacts$workflows$wflw_prophet_boost ,
+  wflw_artifacts$workflows$wflw_xgboost,
+  wflw_artifacts$workflows$wflw_lightgbm, 
+  wflw_artifacts$workflows$wflw_random_forest
+)
+
+submodels_all_tbl <- modeltime_table(
+  tuned_prophet_xgb$tune_wflw_fit, 
+  tuned_xgboost$tune_wflw_fit,
+  tuned_lightgbm$tune_wflw_fit,
+  tuned_random_forest$tune_wflw_fit
+  ) %>%
+  update_model_description(1, "PROPHET W/ XGBOOST ERRORS - Tuned") %>%
+  update_model_description(2, "XGBOOST - Tuned") %>%
+  update_model_description(3, "LIGHTGBM - Tuned") %>%
+  update_model_description(4, "RANGER - Tuned") %>%
+  combine_modeltime_tables(submodels_tbl)
+```
+
+# Tabla de calibración
+   
+```{r, eval = eval_models}
+calibration_all_tbl <- submodels_all_tbl %>%
+  modeltime_calibrate(testing(splits), quiet = FALSE)
+```
+
+# Evaluación de Resultados
+
+```{r, eval = eval_models}
+calibration_all_tbl %>%
+  modeltime_accuracy() %>%
+  arrange(rmse)
+```
+
+```{r, eval = eval_models}
+calibration_all_tbl %>%
+  modeltime_forecast(
+    new_data    = testing(splits),
+    actual_data = artifacts$data$data_prepared_tbl,
+    keep_data   = TRUE 
+  ) %>%
+  filter(Industry == Industries[1]) %>%
+  plot_modeltime_forecast(
+    #.facet_ncol         = 4, 
+    .conf_interval_show = FALSE,
+    .interactive        = TRUE,
+    .title = Industries[1]
+  )
+
+```
+
+
+
+# Guardamos el trabajo
+
+Finalmente metemos todo en una lista y los guardaremos como archivo RDS.
+
+```{r, eval = eval_models}
+# Save all work
+workflow_all_artifacts <- list(
+  
+  workflows = submodels_all_tbl,
+  
+  calibration = calibration_all_tbl
+)
+
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/workflows_NonandTuned_artifacts_list.rds")
+
+workflow_all_artifacts %>%
+  write_rds(archivo_salida)
+```
+
+# Conclusion
+
+

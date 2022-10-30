@@ -86,11 +86,16 @@ wflw_fit_prophet_boost <- workflow() %>%
   fit(training(splits))
 
 # LIGHTGBM --------------
+# Not need to: Remove outliers
+# Not need to: Impute nulls
+# Not need to: Scale features
+# Not need to: Avoid “too many” features
+
 wflw_fit_ligthgbm <- workflow() %>%
   add_model(
     spec =  parsnip::boost_tree(
       mtry = 5,
-      trees = 1000
+      trees = 100
     ) %>% 
       set_mode("regression") %>%
       set_engine("lightgbm", 
@@ -98,9 +103,8 @@ wflw_fit_ligthgbm <- workflow() %>%
   add_recipe(recipe_spec) %>%
   fit(training(splits))
     
-# Models evaluation
+# Models evaluation-----
 # Modeltime table
-
 submodels_tbl <- modeltime_table(
   wflw_fit_rf,
   wflw_fit_xgboost,
@@ -109,23 +113,14 @@ submodels_tbl <- modeltime_table(
   wflw_fit_ligthgbm
 )
 
-submodels_tbl
-
-
-# Calibration table
-# Calibration sets the stage for accuracy and forecast confidence by computing predictions and residuals from out of sample data.
-# 
-# Two columns are added to the previous modeltime table:
-#   
-# .type: Indicates the sample type: "Test" if predicted, or "Fitted" if residuals were stored during modeling.
-# 
-# .calibration_data: it contains a tibble with Timestamps, Actual Values, Predictions and Residuals calculated from new_data (Test Data)
-
 calibrated_wflws_tbl <- submodels_tbl %>%
   modeltime_calibrate(new_data = testing(splits))
 
-
 # Model Evaluation
+# Es comun cuando se trabajan con dataset pequeños en algoritmos como lightgbm
+# quedarse sin datos y no poder calcular sus métricas, obteniendo error indecifrables
+# al momento de calcular `modeltime_accuracy` por eso: MUCHO OJO con los dataset
+# de juguete (salvo que trabajes para una joquetería :))
 
 calibrated_wflws_tbl %>%
   modeltime_accuracy(testing(splits)) %>%
@@ -152,8 +147,9 @@ workflow_artifacts <- list(
 
 archivo_salida  <-  paste0(HOME_DIR,"/exp/001/workflows_artifacts_list.rds")
 
-workflow_artifacts %>% 
-  write_rds(archivo_salida)
+# Para guardar el trabajo generado descomente las siguientes líneas
+# workflow_artifacts %>%
+#   write_rds(archivo_salida)
 
 
 

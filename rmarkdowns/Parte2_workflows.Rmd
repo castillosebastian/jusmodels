@@ -18,11 +18,10 @@ knitr::opts_chunk$set(warning=FALSE, message=FALSE)
 knitr::opts_chunk$set(fig.align = "center", fig.height = 8, fig.width = 10)
 
 source("~/jusmodels/main.R")
+
 interactive <- FALSE
 
-# transformada de fourier: https://conceptosclaros.com/transformada-de-fourier/
-
-eval_models = FALSE
+eval_models = TRUE
 
 ```
 
@@ -32,9 +31,9 @@ knitr::include_graphics("~/jusmodels/rmarkdowns/rm373batch5-05.jpg")
 
 # Introducción
 
-Este es el segundo documento de una serie dedicada al desarrollar modelos predictivos en el servicio de justicia. En esta serie abordamos la predicción de las sentencias que se dictarán a futuro; sin perjuicio de ello entendemos que con los ajustes del caso el *pipeline* de trabajo que describimos puede aplicarse a múltiples dominios.   
+Este es el segundo documento de una serie dedicada al desarrollar modelos predictivos en el servicio de justicia. En esta serie abordamos la predicción de las sentencias que se dictarán a futuro, sin perjuicio de lo cual entendemos que con los ajustes del caso el *pipeline* de trabajo que describimos puede aplicarse a otros tipos de predicciones.      
 
-El objetivo de este artículo de la serie es crear modelos de aprendizaje automático para datos temporales. Emplearemos la librería `modeltime` que se utiliza para integrar modelos según la lógica de programación de `tydimodels`.    
+El objetivo de este artículo de la serie es crear modelos de aprendizaje automático para datos temporales. Emplearemos la librería `modeltime` que se utiliza para integrar modelos según la lógica de programación de `tidymodels`.    
 
 Con esta implementación continuamos el workflow que vimos en la Parte 1 para el desarrollo de modelos predictivos, deteniéndonos en las especificaciones generales de cada modelo y la receta de preprocesamiento correspondiente. Recordemos que cada modelo exige cierta estructura en los datos de entrada, para lo cual la especificación que realizamos a través de la función `recipe` es fundamental. Además veremos las nociones de tabla de modelos y tabla de calibración que nos serán utiles para evaluar y pronosticar todos los modelos al mismo tiempo para las 8 series temporales que estamos tratando de modelar en este ejemplo (sentencias dictadas en cada materia). Finalmente, realizaremos algunos pronósticos en datos de testeo para tener una idea del ajuste de los modelos.    
 
@@ -48,8 +47,8 @@ Respecto del *pipeline* de trabajo nos hemos apoyado exclusivamente en [R](https
 
 El repositorio está armado de tal forma que los script puedan correrse de dos formas:   
 
-- a través se sus documentos RMarkdown, o
-- mediante lso script .R en /source.
+- a través se sus documentos RMarkdown que están en la carpeta `/rmarkdowns`, o
+- mediante lso script .R en `/source`.
 
 # Librerías 
 
@@ -90,19 +89,23 @@ artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/feature_engineering_artifacts_l
 splits            <- artifacts$splits
 recipe_spec       <- artifacts$recipes$recipe_spec
 materia        <- artifacts$data$materia
-rm(artifacts, recipe_spec, materia)
+#rm(artifacts, recipe_spec, materia)
 ```
 
 
-# Mostramos los workflows 
+# Estableciendo los workflows 
 
 Los *workflows* son objetos que guardan/agrupan distintas partes relativas a la generación de modelos. Son *contenedores* que guardan mucha información que de otro modo sería difícil de administrar, y saturaría nuestros ambientes de trabajo.    
 
-Para permitir que cualquier persona consultante pueda ejecutar este documento RMarkdown hemos suspendido su ejecución para evitar saturar la memoria disponible (`eval = eval_models`). Debe tenerse presente que generar todos los modelos para evaluar su performance en datos de testeo consume muchos recursos. Por ello la ejecución de los `workflows` la hemos separado de la ejecución de RMarkdown (sugerimos correr los scripts que están en `/source` independientemente de estos documentos).    
+Para permitir que cualquier persona consultante pueda ejecutar este documento RMarkdown hemos condicionado el ajuste de modelos para evitar saturar los recursos del ordenador. Si desea ejecutar este RMarkdown y ajustar todos los modelos que contiene fije la variable `eval_models = TRUE` que se encuentra en el primer chunk. 
+
+# Eligiendo modelos: arboles y más arboles
+
+Dentro de los modelos que elegimos para la tarea hay un protagonismo evidente de los algoritmos basados en árboles de decisión. Estos algoritmos largamente documentados, con abundantes implementaciones y aplicaciones, resultan particularmente robustos para modelar relaciones no lineales y datos tabulares. Abonando esta conclusión [Léo Grinsztajn et all](https://arxiv.org/abs/2207.08815) dicen: *Esta superioridad se explica por características específicas de los datos tabulares: patrones irregulares en la función objetivo,[la presencia de ] atributos no informativos y datos no rotacionalmente invariantes donde las combinaciones lineales pierden capacidad de representar apropiadamete la información.* (la traducción es nuestra).    
 
 ## Random Forest
 
-Conocidos como *bosques aleatorios* este tipo de modelo se basa en la implementación de un conjunto (*bagging*) de *arboles de decisión*. Cada random forest -compuesto por múltiples arboles de decisión- se entrena en un subconjunto de datos (observaciones de nuestro dataset) aleatereamente seleccionados, y luego se combina los resultados de los modelos para obtener un resultado final. Mas sobre Random Forest puede verse [aquí](https://bradleyboehmke.github.io/HOML/random-forest.html). En nuestro caso utilizaremos la librería [`ranger`](https://github.com/imbs-hl/ranger). 
+Conocidos como *bosques aleatorios* este tipo de modelo se basa en la implementación de un conjunto (*bagging*) de *arboles de decisión*. Cada random forest -compuesto por múltiples modelos- se entrena en un subconjunto de datos (observaciones de nuestro dataset) aleatereamente seleccionados, y luego se combina los resultados de los modelos para obtener un resultado final. Mas sobre Random Forest puede verse [aquí](https://bradleyboehmke.github.io/HOML/random-forest.html). En nuestro caso utilizaremos la librería [`ranger`](https://github.com/imbs-hl/ranger). 
 
 
 ```{r, eval = eval_models}
@@ -120,7 +123,7 @@ wflw_fit_rf <- workflow() %>%
 
 ## XGBoost
 
-Este modelo es un implementación del algoritmo Gradient Boosted Decision Trees (cuya traducción aproximada según google sería: *Árboles de decisión potenciados por gradientes*). Mientras que los bosques aleatorios construyen un conjunto de árboles independientes profundos, los algoritmos basados en Gradient Boosting construyen un conjunto de árboles poco profundos (pocas particiones) secuencialmente, donde cada nuevo modelo busca minimizar los errores de predicción (residuos) del anterior. Mas sobre xgboos puede verse [aquí](https://bradleyboehmke.github.io/HOML/gbm.html#xgboost).   
+Este modelo, también se basa en árboles de decisión, pero implementa un algoritmo (Gradient Boosted Decision Trees) de entrenamiento secuencial que minimiza el error y mejora las predicciones. Mientras que los bosques aleatorios construyen un conjunto de árboles independientes profundos (de múltiples niveles), los algoritmos basados en Gradient Boosting construyen un conjunto de árboles poco profundos (pocas particiones), donde cada nuevo modelo busca minimizar los errores de predicción (residuos) del anterior. Mas sobre xgboos puede verse [aquí](https://bradleyboehmke.github.io/HOML/gbm.html#xgboost).   
 
 ```{r, eval = eval_models}
 wflw_fit_xgboost <- workflow() %>%
@@ -155,7 +158,12 @@ wflw_fit_prophet <- workflow() %>%
   fit(training(splits))
 ```
 
-## Prophet Boost
+## Prophet Boost   
+
+Este modelo combina Prophet con XGBoost para obtener [-dice su creador-](https://www.r-bloggers.com/2020/06/introducing-modeltime-tidy-time-series-forecasting-using-tidymodels/) lo mejor de ambos mundos (es decir, Prophet Automation + Machine Learning). El algoritmo funciona así:   
+- Primero modela la serie univariante usando Prophet, y luego
+- Usando los demás predictores genera una regresión de los residuos de Prophet con el modelo XGBoost.  
+
 
 ```{r, eval = eval_models}
 wflw_fit_prophet_boost <- workflow() %>%
@@ -173,51 +181,73 @@ wflw_fit_prophet_boost <- workflow() %>%
 
 ## Lightgbm
 
-```{r, eval = eval_models}
+Este algoritmo fue creado por Microsoft, y al igual que XGboots se base en arboles de decisión y en el método de *Gradient Boosting* para el ajuste del modelo, pero a diferencia del anterior la generación de arboles no procede a través de niveles sino por hoja o nodos finales (mediante la técnica de `Gradient-based One-Side Sampling`). Eso le confiere al lightgbm rapidez y gran performance en dataset muy grandes. 
+
+```{r, eval = eval_models, message=FALSE, warning=FALSE, error=FALSE}
 wflw_fit_ligthgbm <- workflow() %>%
   add_model(
     spec =  parsnip::boost_tree(
       mtry = 5, 
-      trees = 1000
+      trees = 100
     ) %>% 
       set_mode("regression") %>%
       set_engine("lightgbm", 
+                 quiet  = TRUE,
                  objective = "root_mean_squared_error")) %>%
   add_recipe(recipe_spec) %>%
   fit(training(splits))
 ```
 
-# Abrimos las salidas de `/source/workflows.R`
+<!-- # Abrimos las salidas de `/source/workflows.R` -->
 
-Hemos ejecutado el script ``/source/workflows.R` y generado todas sus salidas. Lo que mostramos a partir de esta parte del documento, fue procesado previamente, para permitir renderizar este documento RMarkdow por parte de cualquier persona que consulte el repositorio. 
+<!-- Hemos ejecutado el script ``/source/workflows.R` y generado todas sus salidas. Lo que mostramos a partir de esta parte del documento, fue procesado previamente, para permitir renderizar este documento RMarkdow por parte de cualquier persona que consulte el repositorio.  -->
+
+<!-- ```{r} -->
+<!-- workflows_list <- read_rds(paste0(HOME_DIR,"/exp/001/workflows_artifacts_list.rds")) -->
+<!-- ``` -->
+
+# Tabla de Modelos
+
+En esta etapa creamos una tabla donde se agregan los modelos que actúa como contenedora de todos los `workflows` que hemos generado.   
 
 ```{r}
-workflows_list <- read_rds(paste0(HOME_DIR,"/exp/001/workflows_artifacts_list.rds"))
-```
-
-## Tabla de Modelos
-
-```{r}
-modeltime_table(
-  workflows_list$workflows$wflw_random_forest,
-  workflows_list$workflows$wflw_xgboost,
-  workflows_list$workflows$wflw_prophet,
-  workflows_list$workflows$wflw_prophet_boost,
-  workflows_list$workflows$wflw_lightgbm) 
+submodels_tbl <- modeltime_table(
+  wflw_fit_rf,
+  wflw_fit_xgboost,
+  wflw_fit_prophet,
+  wflw_fit_prophet_boost,
+  wflw_fit_ligthgbm
+)
+submodels_tbl
 ```
 
 # Tabla de Calibración
 
+En la etapa de calibración  de los modelos se calculan predicciones y residuos a partir de datos de test, no incluidos en el entrenamiento. Una salida de esta etapa es una lista de dataset con las observaciones más las predicciones y residuos.    
+
 ```{r}
 #Model Evaluation
-workflows_list$calibration$calibration_tbl %>%
-  modeltime_accuracy(testing(splits)) %>%
-  arrange(rmse) 
+calibrated_wflws_tbl <- submodels_tbl %>%
+  modeltime_calibrate(new_data = testing(splits))
 ```
+
+# Evaluación
+
+Finalmente, la hora de la verdad: la evaluación. Los resultados de la calibración se utilizan para los obtener distintas métricas de la performance de nuestros modelos en datos de testeo. 
+
+
+```{r}
+calibrated_wflws_tbl %>%
+  modeltime_accuracy(testing(splits)) %>%
+  arrange(rmse)
+```
+
+Vemos que el `rsq` (variabilidad explicada por parte de nuestros modelos) es baja, señalando un bajo poder predictivo. Sin embargo, hay que tener en cuenta que aquí solamente hemos 'activado' nuestros modelos con las configuraciones por defecto, sin ningún ajuste de parámetros que es fundamental para mejorar resultados. 
+
 
 # Guardamos el trabajo
 
-Finalmente metemos los workflow y tabla de calibración en una lista y la guardaremos como un archivo RDS.
+Finalmente metemos los workflow y tabla de calibración en una lista y los guardaremos como archivo RDS.
 
 ```{r, eval = eval_models}
 archivo_salida  <-  paste0(HOME_DIR,"/exp/001/workflows_artifacts_list.rds")
@@ -237,18 +267,18 @@ workflow_artifacts <- list(
   calibration = list(calibration_tbl = calibrated_wflws_tbl)
 
 )
+```
 
-workflow_artifacts %>%
-  write_rds(archivo_salida)
-
+```{r}
+#Para guardar el trabajo generado descomente este chunk
+# workflow_artifacts %>%
+#   write_rds(archivo_salida)
 ```
 
 # Conclusion
 
-A lo largo del documento presentamos los primeros pasos en un *pipeline* para la creación de modelos predictivos de indicadores judiciales, en este caso *sentencias dictadas por materia*.    
+A lo largo del documento presentamos los modelos predictivos que emplearemos para predecir las *sentencias dictadas por materia*, configurando los `workflows`de entrenamiento de cada uno y sus especificaciones generales.     
 
-Hemos trabajando con el *framework* que nos brinda *tidymodels* y otras librerías importantes de R que manipulan series temporales. Con ello, hemos aumentado nuestros datos y probado la significancia de las nuevas variables.    
+Luego hemos reunido toda la información de los modelos en tablas y evaluado cada uno. 
 
-Aplicamos una serie de transformaciones que tuvieron buenos resultados en la evaluación realizada en un modelo lineal de regresión múltiple, que llevaron a mejorar el R2-Ajustado de 0.4 a 0.65. Entre esas trasnformaciones la series de Fourier y los lags fueron los que tuvieron mayor valor predictivo.    
-
-En los próximos documentos avanzaremos en el armado de *workflows* de procesamiento con modelos de *machine learning*: alphabet, xgboost, random forest y ligthgbm. Luego seguiremos con el *tuneo de hiperparámetros* mediante optimizaciones bayesianas.  A no desesperar en el camino; una vez que se realiza no hay vuelta atrás :)
+En los próximos documentos avanzaremos la búsqueda de los mejores hiperparámetros de nuestros modelos: alphabet, xgboost, random forest y ligthgbm.   

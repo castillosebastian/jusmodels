@@ -6,6 +6,7 @@ pacman::p_load(tidyverse,
                fastDummies,
                skimr, 
                tidymodels, 
+               recipes,
                modeltime,
                future, 
                doFuture,
@@ -14,8 +15,6 @@ pacman::p_load(tidyverse,
 options(scipen=999)
 options(tidymodels.dark = TRUE)
 
-# inspiration
-# https://blog.bguarisma.com/time-series-forecasting-lab-part-4-hyperparameter-tuning
 # bayes opt: important
 # https://towardsdatascience.com/the-beauty-of-bayesian-optimization-explained-in-simple-terms-81f3ee13b10f
 # r package: https://github.com/yanyachen/rBayesianOptimization 
@@ -26,24 +25,20 @@ options(tidymodels.dark = TRUE)
 # https://business-science.github.io/modeltime/articles/parallel-processing.html
 
 # todo------
-
 # implementar HT with rBayesianOptimization 
 
 # Load data y process enviroment----------
 artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/feature_engineering_artifacts_list.rds"))
 splits            <- artifacts$splits
 recipe_spec       <- artifacts$recipes$recipe_spec
-Industries        <- artifacts$data$industries
+materia        <- artifacts$data$materia
 
 wflw_artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/workflows_artifacts_list.rds"))
  
-# Cross-validation plan
-# A k-fold cross-validation will randomly split the training data into k groups of roughly equal size (called "folds"). A resample of the analysis data consisted of k-1 of the folds while the assessment set contains the final fold. In basic k-fold cross-validation (i.e. no repeats), the number of resamples is equal to k.
-
-# k = 10 folds
+# Cross-validation plan----
 set.seed(123)
 resamples_kfold <- training(splits) %>% 
-  vfold_cv(v = 5)
+  vfold_cv(v = 10)
 
 # Registers the doFuture parallel processing
 registerDoFuture()
@@ -51,18 +46,14 @@ registerDoFuture()
 # detect CPU / threads (or vCores)
 n_cores <- parallel::detectCores()
 
-
-
 # Prophet Boost--------------------------------------------------------------
 
 # repo: https://business-science.github.io/modeltime/reference/prophet_boost.html 
 # implementation: 
 ## https://www.kaggle.com/code/gomes555/xgboost-bayes-opt-with-tidymodels
 ## https://www.hfshr.xyz/posts/2020-05-23-tidymodel-notes/
-# tuning: https://medium.com/grabngoinfo/hyperparameter-tuning-and-regularization-for-time-series-model-using-prophet-in-python-9791370a07dc
-
-
-## Identify tuning parameters-----
+# tuning: 
+# https://medium.com/grabngoinfo/hyperparameter-tuning-and-regularization-for-time-series-model-using-prophet-in-python-9791370a07dc
 # https://medium.com/grabngoinfo/hyperparameter-tuning-and-regularization-for-time-series-model-using-prophet-in-python-9791370a07dc
 
 model_spec_prophet_boost_tune <- prophet_boost(
@@ -90,10 +81,8 @@ wflw_spec_prophet_boost_tune <- workflow() %>%
   add_recipe(artifacts$recipes$recipe_spec)
 
 # Prophet Boost
-# Check parameters' range
-# The first thing to do is to display the parameters of the model with 
+# Check parameters' range with 
 # extract_parameter_set_dials(): you must check if there is any parameter 
-# with missing information about its values range.
 # nparam[?] means that values range is missing for mtry parameter.
 
 ## Round 1: Hyperparamter Tuning ------------------------------------------------
@@ -118,31 +107,20 @@ tune_results_prophet_boost_1 <- wflw_spec_prophet_boost_tune %>%
     iter = 10,
     # How to measure performance? RSME raiz cuadrada del error cuadrado medio y R2 % de variabilidad
     metrics = metric_set(rmse, rsq),
-    control = control_bayes(no_improve = 30, verbose = TRUE)
+    control = control_bayes(no_improve = 30, verbose = TRUE) # No parelelizable: ha confirmar
   )
 
-# toggle off parallel processing
+# desactivar proc paralelo
 plan(strategy = sequential)
 
+# Resultados
 tune_results_prophet_boost_1 %>% 
   show_best("rmse", n = Inf)
 
 tune_results_prophet_boost_1 %>% 
   show_best("rsq", n = Inf)
 
-# This is the most important part of the process: as a data scientist, 
-# you will decide of the tuning strategy.
-# Spot the plot with a monotonic smooth fonction (blue line), 
-# descending for RMSE or ascending for R-squared.  
-# Update the parameters range of values for the parameter/s where the RMSE is minimal.
-# Generally speaking we will do the following steps for each tuning round
-# 1.update or adjust the parameter range 
-# 2.toggle on parallel processing
-# 3.perform hyperparameter tuning with new bayes opt
-# 4.toggle off parallel processing
-# 5.analyze best RMSE and RSQ results
-# 6.go to 1.
-
+# Gráficos
 gr1<- tune_results_prophet_boost_1 %>%
   autoplot() +
   geom_smooth(se = FALSE)
@@ -259,14 +237,16 @@ tuned_prophet_xgb <- list(
   tune_wkflw_spec = wflw_spec_prophet_boost_tune, # best model workflow
   # Grid spec
   tune_bayes_param_set = list(
-    round1 = prophet_boost_set_1,
-    round2 = prophet_boost_set_2,
-    round3 = prophet_boost_set_3),
+    round1 = prophet_boost_set_1#,
+    # round2 = prophet_boost_set_2,
+    # round3 = prophet_boost_set_3
+    ),
   # Tuning Results
   tune_results = list(
-    round1 = tune_results_prophet_boost_1,
-    round2 = tune_results_prophet_boost_2,
-    round3 = tune_results_prophet_boost_3),
+    round1 = tune_results_prophet_boost_1#,
+    # round2 = tune_results_prophet_boost_2,
+    # round3 = tune_results_prophet_boost_3
+    ),
   # Tuned Workflow Fit
   tune_wflw_fit = wflw_fit_prophet_boost_tuned,
   # from FE
@@ -304,7 +284,7 @@ model_spec_xgboost_tune <- parsnip::boost_tree(
 wflw_spec_xgboost_tune <- workflow() %>%
   add_model(model_spec_xgboost_tune) %>%
   add_recipe(artifacts$recipes$recipe_spec %>% 
-               step_rm(Month)) # https://stackoverflow.com/questions/72548979/my-parsnip-models-doesnt-work-in-modeltime-calibrate-function-after-updating-pa
+               step_rm(mes)) # https://stackoverflow.com/questions/72548979/my-parsnip-models-doesnt-work-in-modeltime-calibrate-function-after-updating-pa
 
 
 ## Round 1: Hyperparamter Tuning ------------------------------------------------
@@ -431,7 +411,7 @@ modeltime_table(wflw_fit_xgboost_tuned_rsq) %>%
 tuned_xgboost <- list(
   
   # Workflow spec
-  tune_wkflw_spec = wflw_fit_xgboost_tuned_rsq, # best model workflow
+  tune_wkflw_spec = wflw_spec_xgboost_tune, # best model workflow
   # Grid spec
   tune_bayes_param_set = list(
     round1 = xgboost_set_1,
@@ -458,9 +438,6 @@ archivo_salida  <-  paste0(HOME_DIR,"/exp/001/tuned_xgboost.rds")
 tuned_xgboost %>% 
   write_rds(archivo_salida)
 
-
-
-
 -----------------------
 # Ligthgbm--------------------------------------------------------------------
 
@@ -468,7 +445,7 @@ tuned_xgboost %>%
 
 model_spec_lightgbm_tune <- parsnip::boost_tree(
   mtry = tune(),
-  trees = 1000,
+  trees = 100,
   min_n = tune(),
   tree_depth = tune(),
   loss_reduction = tune(),
@@ -488,7 +465,7 @@ lightgbm_set <- extract_parameter_set_dials(wflw_spec_lightgbm_tune)
 
 lightgbm_set_1 <-
   lightgbm_set %>%
-  update(mtry = mtry(c(1L,30L)))
+  recipes::update(mtry = mtry(c(1L,30L)))
 
 tune_results_lightgbm_boost_1 <- wflw_spec_lightgbm_tune %>%
   tune_bayes(
@@ -567,13 +544,7 @@ modeltime_table(wflw_fit_lightgbm_tuned) %>%
   modeltime_calibrate(testing(splits)) %>%
   modeltime_accuracy()
 
-lightgbm_tuned_test_accuracy = modeltime_table(wflw_fit_lightgbm_tuned) %>%
-  modeltime_calibrate(testing(splits)) %>%
-  modeltime_accuracy()
-
-
 # Fitting round 3 best RSQ model
-
 wflw_fit_lightgbm_tuned_rsq <- wflw_spec_lightgbm_tune %>%
   finalize_workflow(
     select_best(tune_results_lightgbm_boost_1, "rsq", n=1)) %>%
@@ -601,11 +572,8 @@ tuned_lightgbm <- list(
   data          = artifacts$data,
   recipes       = artifacts$recipes,
   standardize   = artifacts$standardize,
-  normalize     = artifacts$normalize,
-  # test accuracy
-  lightgbm_tuned_test_accuracy = lightgbm_tuned_test_accuracy
-  
-)
+  normalize     = artifacts$normalize
+  )
 
 archivo_salida  <-  paste0(HOME_DIR,"/exp/001/tuned_lightgbm.rds")
 
@@ -662,6 +630,7 @@ gr1<- tune_results_svm_1 %>%
 ggplotly(gr1)
 
 
+
 # RandomForest----
 
 model_spec_random_forest_tune <- rand_forest(
@@ -675,7 +644,7 @@ model_spec_random_forest_tune <- rand_forest(
 wflw_spec_random_forest_tune <- workflow() %>%
   add_model(model_spec_random_forest_tune) %>%
   add_recipe(artifacts$recipes$recipe_spec %>% 
-               step_rm(Month)) 
+               step_rm(mes)) 
 
 random_forest_set <- extract_parameter_set_dials(model_spec_random_forest_tune)
 
@@ -730,7 +699,7 @@ modeltime_table(wflw_fit_random_forest_tuned_rsq) %>%
   modeltime_calibrate(testing(splits)) %>%
   modeltime_accuracy()
 
-## Save Prophet Boot tuning artifacts------
+## Save RF tuning artifacts------
 tuned_random_forest <- list(
   
   # Workflow spec
@@ -776,9 +745,9 @@ tuned_random_forest %>%
 submodels_tbl <- modeltime_table(
   wflw_artifacts$workflows$wflw_random_forest,
   wflw_artifacts$workflows$wflw_xgboost,
-  wflw_artifacts$workflows$wflw_prophet,
-  wflw_artifacts$workflows$wflw_prophet_boost #,
-  #wflw_artifacts$workflows$wflw_lightgbm
+  #wflw_artifacts$workflows$wflw_prophet,
+  wflw_artifacts$workflows$wflw_prophet_boost ,
+  wflw_artifacts$workflows$wflw_lightgbm
 )
 
 submodels_all_tbl <- modeltime_table(
@@ -803,16 +772,16 @@ submodels_all_tbl <- modeltime_table(
 calibration_all_tbl <- submodels_all_tbl %>%
   modeltime_calibrate(testing(splits), quiet = FALSE)
 
-# calibration_all_tbl %>% 
-#   modeltime_accuracy() %>%
-#   arrange(rmse) 
+calibration_all_tbl %>%
+  modeltime_accuracy() %>%
+  arrange(rmse)
 
 # Integro LightGBM
-accuracy_all <- calibration_all_tbl %>% 
-  modeltime_accuracy() %>%
-  bind_rows(tuned_lightgbm$lightgbm_tuned_test_accuracy) %>% 
-  mutate(.model_desc = str_replace(.model_desc, "LIGHTGBM", "LIGHTGBM - Tuned")) %>% 
-  arrange(rmse) 
+# accuracy_all <- calibration_all_tbl %>% 
+#   modeltime_accuracy() %>%
+#   bind_rows(tuned_lightgbm$lightgbm_tuned_test_accuracy) %>% 
+#   mutate(.model_desc = str_replace(.model_desc, "LIGHTGBM", "LIGHTGBM - Tuned")) %>% 
+#   arrange(rmse) 
 
 # Interactive table 
 accuracy_all %>%
