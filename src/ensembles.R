@@ -1,5 +1,4 @@
 # Ensembles
-
 # lib
 pacman::p_load(tidyverse,
                timetk,
@@ -103,7 +102,7 @@ calibration_all_tbl <- modeltime_table(
 calibration_all_tbl %>%
   modeltime_calibrate(testing(splits)) %>%
   modeltime_accuracy() %>%
-  arrange(rmse)
+  arrange(desc(rsq))
 
 # Since one of the average ensemble was the best model, we did not bother with 
 # improving ensemble models performance with model selection e.g., selecting the
