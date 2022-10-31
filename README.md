@@ -57,7 +57,7 @@ Intenté configurar el ambiente de trabajo de tal forma que fuera reproducible y
 
 ## Reconocimientos
 
-- Este repositorio está fuertemente inspirado en el trabajo en *MLOps* realizado con el [Profesor Gustavo Denicolay](https://github.com/castillosebastian/labo) y los post de Series Temporales de [Matt Dancho](https://business-science.github.io/modeltime.ensemble/index.html) y [Boris Guarisma ](https://blog.bguarisma.com/). He procurado extender las implementaciones presentadas por este último, incorporando algoritmos (eg.lightgbm) o métodos (eg. optimización bayesiana) impulsados por Denicolay. Denicolay merece todos los créditos por los buenos logros, los errores me pertenecen.    
+- Este repositorio está fuertemente inspirado en el trabajo en *MLOps* realizado con un gran [Profesor Gustavo Denicolay](https://github.com/castillosebastian/labo) y los post de Series Temporales de [Matt Dancho](https://business-science.github.io/modeltime.ensemble/index.html) y [Boris Guarisma ](https://blog.bguarisma.com/). He procurado extender las implementaciones presentadas por este último, incorporando algoritmos (eg.lightgbm) o métodos (eg. optimización bayesiana) impulsados por Denicolay. Denicolay merece todos los créditos por los buenos logros, los errores me pertenecen.    
 
 ## Bibliografía empleada
 
