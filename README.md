@@ -1,11 +1,26 @@
 # Justmodels 
 
-Este es un repositorio que contiene el pipeline completo para implementar modelos de *machine learning* para predecir series temporales. En el caso particular que sirve de ejemplo (ver documentación en la carpeta `/rmardowns` o en mi [webpage](https://castillosebastian.github.io/)) empleamos datos del servicio de justicia. 
+Este es un repositorio que contiene el *pipeline* completo para implementar modelos de *machine learning* en la predicción de series temporales. En el caso particular que nos sirve de ejemplo (ver documentación en la carpeta `/rmardowns` o en mi [webpage](https://castillosebastian.github.io/)) empleamos datos del servicio de justicia. 
 
-El repo puede consultarse de dos formas:
+El repositorio está armado de tal forma que los *scripts* puedan correrse de dos formas:   
 
-- a través de sus documentos RMarkdowns, o
-- mediante los scripts de R.
+- a través se sus documentos rmarkdown disponibles en `/rmarkdowns` , o
+- mediante los archivos .R en `/source`.   
+
+# Publicaciones del Repos
+
+Los documentos RMardown generado en el repo puede consultarse on line aquí:
+
+- [Feature engineering](https://rpubs.com/ClaudioSebastianCastillo/964233) 
+- [Workflows](https://rpubs.com/ClaudioSebastianCastillo/963182)
+- [Hyperparameter Tuning](https://rpubs.com/ClaudioSebastianCastillo/963694)
+- [Ensambles y Meta-learners](https://rpubs.com/ClaudioSebastianCastillo/964231)
+
+
+## Ambiente de trabajo
+
+Intenté configurar el ambiente de trabajo de tal forma que fuera reproducible y que el repositorio en general sea fácil de implementar. Sin embargo resalto que la ejecución tanto de los scripts como de los documentos RMarkdown requieren un número importante de librerías y sus respectivas dependencias. Puedo anticiparles que, salvo que se disponga de una *tarde tranquila* para instalar todo y jugar con el código, la reproducción del procesamiento aquí presentado puede darles un dolor de cabeza. Para la próxima intentaré ser menos pretencioso :).
+
 
 ## Estructura del Projecto
 
@@ -33,9 +48,16 @@ El repo puede consultarse de dos formas:
 
 4. Correr `<PROJECT_HOME>/main.R` para setear variables y path
 
+5. Jugar y romper a voluntad!
+
+## To do:
+
+- Implementar calibración de `lightgbm` compatibla con `modeltime_calibrate()`
+- Reentrenar set de datos/particiones para actua
+
 ## Reconocimientos
 
-- Este repositorio está fuertemente inspirado en el trabajo en *MLOps* realizado con el [Profesor Gustavo Denicolay](https://github.com/castillosebastian/labo) y los post de Series Temporales de [Boris Guarisma ](https://blog.bguarisma.com/). He procurado extender las implementaciones presentadas por este último en dirección de mejorar los resultados de las predicciones, incorporando algoritmos (eg.lightgbm) o métodos (eg. optimización bayesiana) impulsados por Denicolay. Éste último merece todos los créditos por los buenos logros, los errores me pertenecen.    
+- Este repositorio está fuertemente inspirado en el trabajo en *MLOps* realizado con el [Profesor Gustavo Denicolay](https://github.com/castillosebastian/labo) y los post de Series Temporales de [Matt Dancho](https://business-science.github.io/modeltime.ensemble/index.html) y [Boris Guarisma ](https://blog.bguarisma.com/). He procurado extender las implementaciones presentadas por este último, incorporando algoritmos (eg.lightgbm) o métodos (eg. optimización bayesiana) impulsados por Denicolay. Denicolay merece todos los créditos por los buenos logros, los errores me pertenecen.    
 
 ## Bibliografía empleada
 
