@@ -7,9 +7,9 @@ El repositorio está armado de tal forma que los *scripts* puedan correrse de do
 - a través se sus documentos rmarkdown disponibles en `/rmarkdowns` , o
 - mediante los archivos .R en `/source`.   
 
-# Publicaciones del Repos
+# Publicaciones del Repositorio
 
-Los documentos RMardown generado en el repo puede consultarse on line aquí:
+Los documentos RMardown generado en este repositorio puede consultarse on line aquí:
 
 - [Feature engineering](https://rpubs.com/ClaudioSebastianCastillo/964233) 
 - [Workflows](https://rpubs.com/ClaudioSebastianCastillo/963182)
@@ -53,7 +53,7 @@ Intenté configurar el ambiente de trabajo de tal forma que fuera reproducible y
 ## To do:
 
 - Implementar calibración de `lightgbm` compatibla con `modeltime_calibrate()`
-- Reentrenar set de datos/particiones para actua
+- Reentrenar set de datos/particiones para predicciones en `future_dataset`
 
 ## Reconocimientos
 
