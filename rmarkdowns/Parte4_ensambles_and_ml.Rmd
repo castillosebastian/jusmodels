@@ -1,0 +1,391 @@
+---
+title: "Modelos predictivos en la justicia - Parte 4 "
+subtitle: "Ensambles y Meta-Learners"
+author: "Claudio Sebastián Castillo"
+date: "`r format(Sys.Date(), '%d de %B de %Y') `"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    theme: united
+  pdf_document: default
+always_allow_html: true
+---
+<style> body {text-align: justify} </style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+knitr::opts_chunk$set(fig.align = "center", fig.height = 8, fig.width = 10)
+
+source("~/jusmodels/main.R")
+
+interactive <- FALSE
+
+eval_models = FALSE
+
+```
+
+```{r, fig.height = 12, fig.width = 12, out.width='100%', echo=FALSE}
+knitr::include_graphics("~/jusmodels/rmarkdowns/close-up-team-students-teamwork-stack-hands-together-startup-success-concept.jpg")
+```
+
+# Introducción
+
+Este es el cuarto documento de una serie dedicada al desarrollar modelos predictivos en el servicio de justicia. En esta serie abordamos el ensamble de modelos y la construción de meta-learners como técnica para mejorar las prediccines de modelos individuales. El objetivo de este artículo de la serie es explicar como implementar estas técnicas con los ejemplos trabajados en el artículo 3.
+
+# Código y ambiente de trabajo en R
+
+Los scripts completos de esta implementación y los documentos RMarkdown que sirven a esta presentación puede accederse en mi repositorio de github [castillosebastian](https://github.com/castillosebastian/jusmodels.git). En el README de ese repositorio se puede encontrar un detalle de la configuración del ambiente de trabajo que he utilizado en el proyecto y recomendaciones para su instalación.    
+
+Como veremos más adelante, algunas partes de las operaciones de desarrollo de modelos (vinculadas a un pipeline de MLOps) requieren cierto *hardware* particular (sobretodo RAM y CPU). En nuestro caso hemos trabajado en un Centos 7, con 12 vCPU y 32G de RAM, y en ocasiones esos recursos fueron insuficientes, por lo que algo más de disponibilidad será de ayuda.   
+
+Respecto del *pipeline* de trabajo nos hemos apoyado exclusivamente en [R](https://www.r-project.org/), y particularmente en [tidymodels](https://www.tidymodels.org/), gracias al aprecio que tenemos por [tidyverse](https://www.tidyverse.org/). Este *framework* nos brinda toda una batería de herramientas que facilitan el trabajo y la experimentación, aspecto fundamental en el desarrollo de modelos de *machine learning*. Para culquiera intersado en él dirigirse aquí: https://www.tidymodels.org/.    
+
+El repositorio está armado de tal forma que los script puedan correrse de dos formas:   
+
+- a través se sus documentos RMarkdown que están en la carpeta `/rmarkdowns`, o
+- mediante lso script .R en `/source`.
+
+# Librerías 
+
+A continuación presentamos las librerías que emplearemos en este documento. Cada nueva publicación de la serie incluirá un detalle de sus recursos.    
+
+```{r}
+pacman::p_load(tidyverse,
+               timetk,
+               tsibble,
+               tsibbledata,
+               fastDummies,
+               skimr, 
+               tidymodels, 
+               modeltime,
+               lightgbm,
+               future, 
+               doFuture,
+               plotly,
+               treesnip, 
+               tune,
+               kableExtra, 
+               plotly, 
+               modeltime.ensemble)
+options(scipen=999)
+options(tidymodels.dark = TRUE)
+```
+
+# Abrimos los productos generados en la Parte  3
+
+Abrimos los objetos que generamos en el `feature_engeniering` y en `workflows`.    
+
+```{r, eval = TRUE}
+workflows_tunednot <- read_rds(paste0(HOME_DIR, "/exp/001/workflows_NonandTuned_artifacts_list.rds"))
+calibration_tbl <- workflows_tunednot$calibration
+submodels_tbl <- workflows_tunednot$workflows
+
+artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/feature_engineering_artifacts_list.rds"))
+splits            <- artifacts$splits
+recipe_spec       <- artifacts$recipes$recipe_spec
+materia        <- artifacts$data$materia
+
+wflw_artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/workflows_artifacts_list.rds"))
+
+```
+
+# Ensambles
+
+El ensamble de modelos no es otra cosa más que la combinaciones de modelos individuales cuyas predicciones se combinan de alguna manera (por ejemplo, promedio de las predicciones generadas) para generar predicciones mas precisas. Estos ensambles tienden a mejorar la precisión de las predicciones individuales balanceando el sesgo inherente a cada algoritmo utilizado en la combinación. Más sobre esto [aquí](https://bradleyboehmke.github.io/HOML/).
+
+## Ensamble por promedio y mediana de las predicciones
+
+```{r, eval = TRUE}
+ensemble_fit_mean <- calibration_tbl %>%
+  ensemble_average(type = "mean")
+
+ensemble_fit_median <- calibration_tbl %>%
+  ensemble_average(type = "median")
+```
+
+## Ensamble por ponderadación de las predicciones según ranking de modelos
+
+Esta forma de generar los ensambles pondera las predicciones asignando un valor a las mismas según la performance del modelo que las generó. En este caso se construye un ranking simple la mayor ponderación se asigna al medelo con menor RMSE.
+
+```{r, eval = TRUE}
+# creamos tabla con ponderaciones
+# ".loadings" tiene las ponderaciones que suman  1.
+loadings_tbl <- calibration_tbl %>%
+  modeltime_accuracy() %>%
+  mutate(rank = min_rank(-rmse)) %>%
+  select(.model_id, rank)
+
+ensemble_fit_wt <- calibration_tbl %>%
+  ensemble_weighted(loadings = loadings_tbl$rank)
+```
+
+## Evaluaciones de los ensambles
+
+```{r, eval = TRUE}
+modeltime_table(
+  ensemble_fit_mean,
+  ensemble_fit_median,
+  ensemble_fit_wt
+  ) %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy(testing(splits)) %>%
+  arrange(rmse)
+
+```
+## Integramos ensambles con otros modelos y evaluamos 
+
+```{r, eval = TRUE}
+calibration_all_tbl <- modeltime_table(
+  ensemble_fit_mean,
+  ensemble_fit_median,
+  ensemble_fit_wt
+  ) %>% 
+  modeltime_calibrate(testing(splits)) %>%
+  combine_modeltime_tables(calibration_tbl)
+
+calibration_all_tbl %>%
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy() %>%
+  arrange(desc(rsq))
+```
+## Guardamos tabla de calibraciones totales 
+
+Guardamos todos los resultados: modelos simples, modelos tuneados y ensambles.   
+
+```{r, eval = TRUE}
+# Save all work
+ensembles <- list(
+  
+  calibration_all_tbl  = calibration_all_tbl
+)
+
+archivo_salida  <-  paste0(HOME_DIR,"/exp/001/ensembles.rds")
+
+ensembles %>%
+  write_rds(archivo_salida)
+```
+
+# Meta-Learners o Pila de Modelos
+
+El apilamiento de modelos o meta-aprendizaje es un técnica de aprendizaje automático basado en las predicciones de dos o más algoritmos básicos que sirven como primer nivel de predicciones. El beneficio del apilamiento es que puede aprovechar las capacidades de una variedad de modelos con buena performance particular y aprender de ellas para generar nuevas. Entonces en este tipo de estrategia las predicciones de los modelos individuales actúan como nuevas variables predictoras y la variable original de respuesta es el objetivo a predecir. Nuevamente aquí se busca generar modelos y obtener la combinación óptima de hiperparámetros.          
+
+## Establecemos un plan de muestreo para los datos calibrados
+
+```{r, eval = eval_models}
+set.seed(123)
+resamples_kfold <- training(splits) %>%
+  drop_na() %>%
+  vfold_cv(v = 10)
+
+submodels_resamples_kfold_tbl <- calibration_tbl %>%
+  modeltime_fit_resamples(
+    resamples = resamples_kfold,
+    control   = control_resamples(
+      verbose    = TRUE, 
+      allow_par  = TRUE,
+    )
+  )
+
+```
+
+## Paralelizamos la ejecución
+
+```{r, eval = eval_models}
+# Parallel Processing ----
+registerDoFuture()
+n_cores <- parallel::detectCores()
+
+plan(
+  strategy = cluster,
+  workers  = parallel::makeCluster(n_cores)
+)
+```
+
+### Metalerner1: Bosques Aleatorios y Grind Search
+
+```{r, eval = eval_models}
+ensemble_fit_ranger_kfold <- submodels_resamples_kfold_tbl %>%
+  ensemble_model_spec(
+    model_spec = rand_forest(
+      mode = "regression",
+      trees = tune(),
+      min_n = tune()
+    ) %>%
+      set_engine("ranger"),
+    kfolds  = 10, 
+    grid    = 20,
+    control = control_grid(verbose = TRUE, 
+                           allow_par = TRUE)
+  )
+
+modeltime_table(ensemble_fit_ranger_kfold) %>%
+  modeltime_accuracy(testing(splits))
+```
+
+### Metalerner2: XGBoost y Grid Search
+
+```{r, eval = eval_models}
+ensemble_fit_xgboost_kfold <- submodels_resamples_kfold_tbl %>%
+  ensemble_model_spec(
+    model_spec = boost_tree(
+      trees          = tune(),
+      tree_depth     = tune(),
+      learn_rate     = tune(),
+      loss_reduction = tune(), 
+      mode = "regression"
+    ) %>%
+      set_engine("xgboost"),
+    kfolds = 10, 
+    grid   = 20, 
+    control = control_grid(verbose = TRUE, 
+                           allow_par = TRUE)
+  )
+                  
+modeltime_table(ensemble_fit_xgboost_kfold) %>%
+  modeltime_accuracy(testing(splits))  
+```
+
+### Metalearner3: Máquinas de Soporte Vectorial y Gread Search
+
+```{r, eval = eval_models}
+ensemble_fit_svm_kfold <- submodels_resamples_kfold_tbl %>%
+  ensemble_model_spec(
+    model_spec = svm_rbf(
+      mode      = "regression",
+      cost      = tune(),
+      rbf_sigma = tune(),  
+      margin    = tune()
+    ) %>%
+      set_engine("kernlab"),
+    kfold = 10, 
+    grid  = 20, 
+    control = control_grid(verbose = TRUE, 
+                           allow_par = TRUE)
+  )
+
+modeltime_table(ensemble_fit_svm_kfold) %>%
+  modeltime_accuracy(testing(splits))
+
+```
+
+## Evaluamos resultados de los modelos apilados
+
+```{r}
+metalerners_fit = read_rds(paste0(HOME_DIR, "/exp/001/metalerners_fit.rds"))
+
+ensemble_fit_ranger_kfold = metalerners_fit$ensemble_fit_ranger_kfold
+ensemble_fit_xgboost_kfold = metalerners_fit$ensemble_fit_xgboost_kfold
+ensemble_fit_svm_kfold = metalerners_fit$ensemble_fit_svm_kfold
+
+```
+
+
+```{r, eval = TRUE}
+modeltime_table(
+  ensemble_fit_ranger_kfold, 
+  ensemble_fit_xgboost_kfold,
+  ensemble_fit_svm_kfold
+  ) %>%
+  modeltime_accuracy(testing(splits)) %>% 
+  arrange(rmse)
+```
+
+# Nuevo ensamble de meta-lerners con predicciones ponderadas
+
+```{r, eval = TRUE}
+loadings_tbl <- modeltime_table(
+  ensemble_fit_ranger_kfold, 
+  ensemble_fit_xgboost_kfold,
+  ensemble_fit_svm_kfold
+  ) %>% 
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy() %>%
+  mutate(rank = min_rank(-rmse)) %>%
+  select(.model_id, rank)
+
+stacking_fit_wt <- modeltime_table(
+  ensemble_fit_ranger_kfold, 
+  ensemble_fit_xgboost_kfold,
+  ensemble_fit_svm_kfold
+  ) %>%
+  ensemble_weighted(loadings = loadings_tbl$rank)
+```
+
+## Evaluamos resultados
+
+```{r, eval = eval_models}
+stacking_fit_wt  %>% 
+  modeltime_calibrate(testing(splits)) %>%
+  modeltime_accuracy() %>%
+  arrange(rmse)
+```
+
+# Generamos Predicciones
+
+Generamos un gráfico de predicciones para la materias analizadas en base el último apilamiento de modelos de meta-aprendizaje. 
+
+## Datos de Test
+
+```{r, eval = TRUE}
+
+calibration_stacking <- stacking_fit_wt %>% 
+  modeltime_table() %>%
+  modeltime_calibrate(testing(splits))
+
+calibration_stacking %>%
+  modeltime_forecast(
+    new_data    = testing(splits),
+    actual_data = artifacts$data$data_prepared_tbl,
+    keep_data   = TRUE 
+  ) %>%
+  group_by(materia) %>%
+  plot_modeltime_forecast(
+    .facet_ncol         = 1, 
+    .conf_interval_show = FALSE,
+    .interactive        = TRUE,
+    .title = "Predicciones de modelos apilados sobre datos de test"
+  )
+```
+
+<!-- # Guardamos nuestro trabajo -->
+
+<!-- ```{r, eval = eval_models} -->
+<!-- multilevelstack <- list( -->
+
+<!--   resamples_kfold = resamples_kfold, -->
+
+<!--   submodels_resamples_kfold_tbl = submodels_resamples_kfold_tbl,  -->
+
+<!--   ensemble_fit_ranger_kfold =  ensemble_fit_ranger_kfold,  -->
+<!--   ensemble_fit_xgboost_kfold = ensemble_fit_xgboost_kfold, -->
+<!--   ensemble_fit_svm_kfold =  ensemble_fit_svm_kfold, -->
+<!--   loadings_tbl = loadings_tbl, -->
+<!--   stacking_fit_wt = stacking_fit_wt, -->
+<!--   calibration_stacking = calibration_stacking, -->
+<!--   refit_stacking_tbl = refit_stacking_tbl, -->
+<!--   forecast_stacking_tbl = forecast_stacking_tbl -->
+
+<!-- ) -->
+
+<!-- archivo_salida  <-  paste0(HOME_DIR,"/exp/001/multilevelstack.rds") -->
+
+<!-- multilevelstack %>% -->
+<!--   write_rds(archivo_salida) -->
+
+<!-- ``` -->
+
+# Conclusion
+
+En esta serie hemos implementado el flujo completo de trabajo de desarrollo de modelos de **machine learning** para la predicción de sentencias que se dictarán a futuro por materia.    
+
+Nos hemos enfocado en la presentación de los algoritmos y la organización del flujo de trabajo para permitir la reutilización de las herramientas desarrolladas. Algunos scripts pueden ejecutarse íntegramente sin dificultad y otros (ejemplo `feature_engeneniering.R`) necesitan un trabajo mas artesanal. 
+
+Aunque los resultados obtenidos por los modelos de *machine learning* no son satisfactorios, tenemos muy pocos datos como para hacer una evaluación completa. 
+
+En implementaciones de producción estamos trabajando con `lightgbm` probando distintas estrategias para mejorar resultados en tareas de predicción basadas en regresión. Entre ellas:
+
+- estrategia de entrenamiento con sub-selecciones de períodos temporales, 
+- mayores rondas de experimentos con seteo de distintas semillas ("semilleríos": un joya del gran *Denicolay*), 
+- optimizaciones bayesianas más amplias, y
+- enfoque completo de MLOps para corrida automática de scripts mediante Background Jobs. 

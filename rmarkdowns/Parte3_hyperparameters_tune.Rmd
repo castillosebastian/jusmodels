@@ -585,7 +585,7 @@ tune_results_random_forest_1 %>%
 
 
 ```{r, eval = eval_models}
-gr1- tune_results_random_forest_1 %>%
+gr1 <- tune_results_random_forest_1 %>%
   autoplot() +
   geom_smooth(se = FALSE)
 ggplotly(gr1)
@@ -656,60 +656,74 @@ Fin del trabajo de búsqueda de los mejores modelos con sus respectivos hiperpar
 
 # Tabla de modelos tuneados
 
-```{r, eval = eval_models}
+Hemos excluido de la tabla el modelo `lightgbm` debido a que encontramos una inconsistencias en su implementación por parte de la función `modeltime_calibrate()`. No obstante ello, aquel algoritmo es el que estamos empleando en el desarrollo de nuestros modelos en producción, por su robustez y resultados. Expondremos en detalle esa implementación en próximos artículos.    
+
+Además de los modelos que vimos antes, agregamos a la tabla otros 2 modelos (un xgboost y un prophet_boost) que fueron entrenados con más arboles en el caso de xgboost (2000) y durante más interaciones (50), un tiempo de entrenamiento de > a 10 h. Este *subexperimento* está documentado en  `/source/train_longer_1.R`.    
+
+```{r}
 submodels_tbl <- modeltime_table(
-  wflw_artifacts$workflows$wflw_prophet_boost ,
+  wflw_artifacts$workflows$wflw_prophet_boost,
   wflw_artifacts$workflows$wflw_xgboost,
-  wflw_artifacts$workflows$wflw_lightgbm, 
+  #wflw_artifacts$workflows$wflw_lightgbm, 
   wflw_artifacts$workflows$wflw_random_forest
 )
 
+# abrimos los meodelos previamente tuneados
+tuned_prophet_xgb <- read_rds(paste0(HOME_DIR, "/exp/001/tuned_prophet_xgb.rds"))
+tuned_xgboost <- read_rds(paste0(HOME_DIR, "/exp/001/tuned_xgboost.rds"))
+tuned_random_forest <- read_rds(paste0(HOME_DIR, "/exp/001/tuned_random_forest.rds"))
+tuned_xgboost_2 <- read_rds(paste0(HOME_DIR, "/exp/001/tuned_xgboost_2.rds"))
+tuned_prophet_xgb_2 <- read_rds(paste0(HOME_DIR, "/exp/001/tuned_prophet_xgb_2.rds"))
+
+# creamos tabla con combinaciones de modelos simples y m. tuneados
 submodels_all_tbl <- modeltime_table(
   tuned_prophet_xgb$tune_wflw_fit, 
   tuned_xgboost$tune_wflw_fit,
-  tuned_lightgbm$tune_wflw_fit,
-  tuned_random_forest$tune_wflw_fit
+  #tuned_lightgbm$tune_wflw_fit,
+  tuned_random_forest$tune_wflw_fit,
+  tuned_xgboost_2$tune_wflw_fit,
+  tuned_prophet_xgb_2$tune_wflw_fit
   ) %>%
   update_model_description(1, "PROPHET W/ XGBOOST ERRORS - Tuned") %>%
   update_model_description(2, "XGBOOST - Tuned") %>%
-  update_model_description(3, "LIGHTGBM - Tuned") %>%
-  update_model_description(4, "RANGER - Tuned") %>%
+  #update_model_description(3, "LIGHTGBM - Tuned") %>%
+  update_model_description(3, "RANGER - Tuned") %>%
+  update_model_description(4, "XGBOOST - EXTRA_Tuned") %>%
+  update_model_description(5, "PROPHET W/ XGBOOST ERRORS - EXTRA_Tuned") %>%
   combine_modeltime_tables(submodels_tbl)
 ```
 
 # Tabla de calibración
    
-```{r, eval = eval_models}
+```{r}
 calibration_all_tbl <- submodels_all_tbl %>%
-  modeltime_calibrate(testing(splits), quiet = FALSE)
+  modeltime_calibrate(new_data = testing(splits))
 ```
 
 # Evaluación de Resultados
 
-```{r, eval = eval_models}
+```{r}
 calibration_all_tbl %>%
   modeltime_accuracy() %>%
-  arrange(rmse)
+  arrange(desc(rsq))
 ```
 
-```{r, eval = eval_models}
+```{r}
 calibration_all_tbl %>%
   modeltime_forecast(
     new_data    = testing(splits),
     actual_data = artifacts$data$data_prepared_tbl,
     keep_data   = TRUE 
   ) %>%
-  filter(Industry == Industries[1]) %>%
+  filter(materia == materia[1]) %>%
   plot_modeltime_forecast(
     #.facet_ncol         = 4, 
     .conf_interval_show = FALSE,
     .interactive        = TRUE,
-    .title = Industries[1]
+    .title = materia[1]
   )
 
 ```
-
-
 
 # Guardamos el trabajo
 
@@ -732,4 +746,4 @@ workflow_all_artifacts %>%
 
 # Conclusion
 
-
+En este documento presentamos una alternativa para la búsqueda de los mejores hiperparámetros de nuestros modelos a partir de la optimización bayesiana. En los próximos documentos veremos como combinar el resultado de los modelos a partir de ensambles y *meta-learners*.     

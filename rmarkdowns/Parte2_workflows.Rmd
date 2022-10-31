@@ -45,7 +45,7 @@ Como veremos más adelante, algunas partes de las operaciones de desarrollo de m
 
 Respecto del *pipeline* de trabajo nos hemos apoyado exclusivamente en [R](https://www.r-project.org/), y particularmente en [tidymodels](https://www.tidymodels.org/), gracias al aprecio que tenemos por [tidyverse](https://www.tidyverse.org/). Este *framework* nos brinda toda una batería de herramientas que facilitan el trabajo y la experimentación, aspecto fundamental en el desarrollo de modelos de *machine learning*. Para culquiera intersado en él dirigirse aquí: https://www.tidymodels.org/.    
 
-El repositorio está armado de tal forma que los script puedan correrse de dos formas:   
+El repositorio está armado de tal forma que los scripts puedan correrse de dos formas:   
 
 - a través se sus documentos RMarkdown que están en la carpeta `/rmarkdowns`, o
 - mediante lso script .R en `/source`.

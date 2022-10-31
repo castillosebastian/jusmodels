@@ -21,9 +21,14 @@ workflows_tunednot <- read_rds(paste0(HOME_DIR, "/exp/001/workflows_NonandTuned_
 
 calibration_tbl <- workflows_tunednot$calibration
 
-calibration_tbl %>% 
-  modeltime_accuracy() %>%
-  arrange(rmse)
+artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/feature_engineering_artifacts_list.rds"))
+splits            <- artifacts$splits
+recipe_spec       <- artifacts$recipes$recipe_spec
+materia        <- artifacts$data$materia
+
+wflw_artifacts <- read_rds(paste0(HOME_DIR, "/exp/001/workflows_artifacts_list.rds"))
+
+
 
 
 # Stacking Algorithms
@@ -50,7 +55,7 @@ submodels_resamples_kfold_tbl <- calibration_tbl %>%
 # Parallel Processing ----
 registerDoFuture()
 n_cores <- parallel::detectCores()
-
+n_cores <- n_cores-2
 plan(
   strategy = cluster,
   workers  = parallel::makeCluster(n_cores)
@@ -133,6 +138,22 @@ modeltime_table(ensemble_fit_svm_kfold) %>%
 # We can combine meta-learners into a higher level of the stack which will 
 # be a normal (weighted) average ensemble 
 
+# https://business-science.github.io/modeltime.ensemble/articles/nested-ensembles.html
+
+# metalerners_fit <- list(
+#   
+#   ensemble_fit_ranger_kfold = ensemble_fit_ranger_kfold,
+#   ensemble_fit_xgboost_kfold = ensemble_fit_xgboost_kfold, 
+#   ensemble_fit_svm_kfold = ensemble_fit_svm_kfold
+# )
+# 
+# archivo_salida  <-  paste0(HOME_DIR,"/exp/001/metalerners_fit.rds")
+# 
+# metalerners_fit %>%
+#   write_rds(archivo_salida)
+
+
+
 modeltime_table(
   ensemble_fit_ranger_kfold, 
   ensemble_fit_xgboost_kfold,
@@ -179,66 +200,107 @@ calibration_stacking %>%
     actual_data = artifacts$data$data_prepared_tbl,
     keep_data   = TRUE 
   ) %>%
-  group_by(Industry) %>%
+  group_by(materia) %>%
   plot_modeltime_forecast(
-    .facet_ncol         = 4, 
+    .facet_ncol         = 1, 
     .conf_interval_show = FALSE,
     .interactive        = TRUE,
-    .title = "Forecast stacking level model (test data)"
+    .title = "Predicciones en test con modelos apilados"
   )
 
-# Next 12 months Turnover forecast----
+# Próximos 12 meses
 # Toggle ON parallel processing
 plan(
   strategy = cluster,
   workers  = parallel::makeCluster(n_cores)
 )
 
-# Refit the model on prepared dataset
-# paralelizar ahorrará mucho tiempo!!!!!!!!!
-refit_stacking_tbl <- calibration_stacking %>% 
+# Reajustamos modelo
+
+# ESTE PARTE DEL SCRIPT FALLA POR EL CAMBIO EN LOS OBJETS: SE DEBE REENTRENAR TODO
+# Sin tocar las salidas de los script.
+
+# paralelizar ahorrará mucho tiempo!
+# refit_stacking_tbl <- calibration_stacking %>% 
+#   modeltime_refit(
+#     data = artifacts$data$data_prepared_tbl %>% 
+#       drop_na(),
+#     resamples = artifacts$data$data_prepared_tbl %>%
+#       drop_na() %>%
+#       vfold_cv(v = 3)
+#   )
+# 
+# # 12-month forecast calculations with future dataset
+# forecast_stacking_tbl <- refit_stacking_tbl %>%
+#   modeltime_forecast(
+#     new_data    = artifacts$data$future_tbl,
+#     actual_data = artifacts$data$data_prepared_tbl, 
+#     keep_data = TRUE
+#   )
+
+# plot the forecast for the next 12 months
+# 
+
+# lforecasts <- lapply(X = 1:length(materia), FUN = function(x){
+#   forecast_stacking_tbl %>%
+#     filter(materia == materia[x]) %>%
+#     #group_by(materia) %>%
+#     mutate(across(.value:.conf_hi,
+#                   .fns = ~standardize_inv_vec(x = .,
+#                                               mean = artifacts$standardize$std_mean[x],
+#                                               sd = artifacts$standardize$std_sd[x]))) %>%
+#     mutate(across(.value:.conf_hi,
+#                   .fns = ~expm1(x = .)))
+# })
+# 
+# forecast_stacking_tbl <- bind_rows(lforecasts)
+# 
+# forecast_stacking_tbl %>%
+#   group_by(materia) %>%
+#   plot_modeltime_forecast(.title = "Sentencias: Predicción 1 año",     
+#                           .facet_ncol         = 1, 
+#                           .conf_interval_show = FALSE,
+#                           .interactive        = TRUE)
+
+
+
+
+refit_calibration_tbl <- calibration_tbl %>% 
   modeltime_refit(
     data = artifacts$data$data_prepared_tbl,
     resamples = artifacts$data$data_prepared_tbl %>%
-      drop_na() %>%
-      vfold_cv(v = 10)
+      vfold_cv(v = 3)
   )
 
 # 12-month forecast calculations with future dataset
-forecast_stacking_tbl <- refit_stacking_tbl %>%
+forecast_calibration_tbl <- refit_calibration_tbl %>%
   modeltime_forecast(
     new_data    = artifacts$data$future_tbl,
-    actual_data = artifacts$data$data_prepared_tbl %>%
-      drop_na(), 
+    actual_data = artifacts$data$data_prepared_tbl, 
     keep_data = TRUE
   )
 
 # Toggle OFF parallel processing
 plan(sequential)
 
-
-# plot the forecast for the next 12 months
-# We invert the Turnover values back to their original values with 
-# standardize_inv_vec() and expm1().
-
-lforecasts <- lapply(X = 1:length(Industries), FUN = function(x){
-  forecast_stacking_tbl %>%
-    filter(Industry == Industries[x]) %>%
-    #group_by(Industry) %>%
+lforecasts <- lapply(X = 1:length(materia), FUN = function(x){
+  forecast_calibration_tbl %>%
+    filter(materia == materia[x]) %>%
+    #group_by(materia) %>%
     mutate(across(.value:.conf_hi,
                   .fns = ~standardize_inv_vec(x = .,
                                               mean = artifacts$standardize$std_mean[x],
                                               sd = artifacts$standardize$std_sd[x]))) %>%
     mutate(across(.value:.conf_hi,
                   .fns = ~expm1(x = .)))
-  })
+})
 
-forecast_stacking_tbl <- bind_rows(lforecasts)
+forecast_calibration_tbl <- bind_rows(lforecasts)
 
-forecast_stacking_tbl %>%
-  group_by(Industry) %>%
-  plot_modeltime_forecast(.title = "Turnover 1-year forecast",     
-                          .facet_ncol         = 4, 
+forecast_calibration_tbl %>%
+  group_by(materia) %>%
+  plot_modeltime_forecast(.title = "Sentencias: Predicción 1 año",     
+                          .facet_ncol         = 1, 
                           .conf_interval_show = FALSE,
                           .interactive        = TRUE)
 
@@ -255,8 +317,10 @@ multilevelstack <- list(
   loadings_tbl = loadings_tbl,
   stacking_fit_wt = stacking_fit_wt,
   calibration_stacking = calibration_stacking,
-  refit_stacking_tbl = refit_stacking_tbl,
-  forecast_stacking_tbl = forecast_stacking_tbl
+  #refit_stacking_tbl = refit_stacking_tbl,
+  #forecast_stacking_tbl = forecast_stacking_tbl
+  refit_calibration_tbl = refit_calibration_tbl, 
+  forecast_calibration_tbl = forecast_calibration_tbl
   
 )
 
