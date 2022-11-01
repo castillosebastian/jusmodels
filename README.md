@@ -1,3 +1,7 @@
+<p align="left">
+  <img src="data-science.png" width="300">
+</p>
+
 # Justmodels 
 
 Este es un repositorio que contiene el *pipeline* completo para implementar modelos de *machine learning* en la predicción de series temporales. En el caso particular que nos sirve de ejemplo (ver documentación en la carpeta `/rmardowns` o en mi [webpage](https://castillosebastian.github.io/)) empleamos datos del servicio de justicia. 
