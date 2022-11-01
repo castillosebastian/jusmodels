@@ -1,5 +1,5 @@
 <p align="left">
-  <img src="data-science.png" width="300">
+  <img src="https://github.com/castillosebastian/jusmodels/data-science.png" width="300">
 </p>
 
 # Justmodels 
