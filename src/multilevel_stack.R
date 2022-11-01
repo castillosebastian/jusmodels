@@ -219,72 +219,26 @@ plan(
 
 # ESTE PARTE DEL SCRIPT FALLA POR EL CAMBIO EN LOS OBJETS: SE DEBE REENTRENAR TODO
 # Sin tocar las salidas de los script.
-
 # paralelizar ahorrará mucho tiempo!
-# refit_stacking_tbl <- calibration_stacking %>% 
-#   modeltime_refit(
-#     data = artifacts$data$data_prepared_tbl %>% 
-#       drop_na(),
-#     resamples = artifacts$data$data_prepared_tbl %>%
-#       drop_na() %>%
-#       vfold_cv(v = 3)
-#   )
-# 
-# # 12-month forecast calculations with future dataset
-# forecast_stacking_tbl <- refit_stacking_tbl %>%
-#   modeltime_forecast(
-#     new_data    = artifacts$data$future_tbl,
-#     actual_data = artifacts$data$data_prepared_tbl, 
-#     keep_data = TRUE
-#   )
-
-# plot the forecast for the next 12 months
-# 
-
-# lforecasts <- lapply(X = 1:length(materia), FUN = function(x){
-#   forecast_stacking_tbl %>%
-#     filter(materia == materia[x]) %>%
-#     #group_by(materia) %>%
-#     mutate(across(.value:.conf_hi,
-#                   .fns = ~standardize_inv_vec(x = .,
-#                                               mean = artifacts$standardize$std_mean[x],
-#                                               sd = artifacts$standardize$std_sd[x]))) %>%
-#     mutate(across(.value:.conf_hi,
-#                   .fns = ~expm1(x = .)))
-# })
-# 
-# forecast_stacking_tbl <- bind_rows(lforecasts)
-# 
-# forecast_stacking_tbl %>%
-#   group_by(materia) %>%
-#   plot_modeltime_forecast(.title = "Sentencias: Predicción 1 año",     
-#                           .facet_ncol         = 1, 
-#                           .conf_interval_show = FALSE,
-#                           .interactive        = TRUE)
-
-
-
-
-refit_calibration_tbl <- calibration_tbl %>% 
+refit_stacking_tbl <- calibration_stacking %>%
   modeltime_refit(
     data = artifacts$data$data_prepared_tbl,
     resamples = artifacts$data$data_prepared_tbl %>%
+      drop_na() %>%
       vfold_cv(v = 3)
   )
 
-# 12-month forecast calculations with future dataset
-forecast_calibration_tbl <- refit_calibration_tbl %>%
+# 12-m predicciones
+forecast_stacking_tbl <- refit_stacking_tbl %>%
   modeltime_forecast(
     new_data    = artifacts$data$future_tbl,
-    actual_data = artifacts$data$data_prepared_tbl, 
+    actual_data = artifacts$data$data_prepared_tbl,
     keep_data = TRUE
   )
 
-# Toggle OFF parallel processing
-plan(sequential)
-
+# plot 
 lforecasts <- lapply(X = 1:length(materia), FUN = function(x){
-  forecast_calibration_tbl %>%
+  forecast_stacking_tbl %>%
     filter(materia == materia[x]) %>%
     #group_by(materia) %>%
     mutate(across(.value:.conf_hi,
@@ -295,14 +249,57 @@ lforecasts <- lapply(X = 1:length(materia), FUN = function(x){
                   .fns = ~expm1(x = .)))
 })
 
-forecast_calibration_tbl <- bind_rows(lforecasts)
+forecast_stacking_tbl <- bind_rows(lforecasts)
 
-forecast_calibration_tbl %>%
+forecast_stacking_tbl %>%
   group_by(materia) %>%
-  plot_modeltime_forecast(.title = "Sentencias: Predicción 1 año",     
-                          .facet_ncol         = 1, 
+  plot_modeltime_forecast(.title = "Sentencias: Predicción 1 año",
+                          .facet_ncol         = 1,
                           .conf_interval_show = FALSE,
                           .interactive        = TRUE)
+
+
+
+# Código OK
+
+# refit_calibration_tbl <- calibration_tbl %>% 
+#   modeltime_refit(
+#     data = artifacts$data$data_prepared_tbl,
+#     resamples = artifacts$data$data_prepared_tbl %>%
+#       vfold_cv(v = 3)
+#   )
+# 
+# # 12-month forecast calculations with future dataset
+# forecast_calibration_tbl <- refit_calibration_tbl %>%
+#   modeltime_forecast(
+#     new_data    = artifacts$data$future_tbl,
+#     actual_data = artifacts$data$data_prepared_tbl, 
+#     keep_data = TRUE
+#   )
+# 
+# # Toggle OFF parallel processing
+# plan(sequential)
+# 
+# lforecasts <- lapply(X = 1:length(materia), FUN = function(x){
+#   forecast_calibration_tbl %>%
+#     filter(materia == materia[x]) %>%
+#     #group_by(materia) %>%
+#     mutate(across(.value:.conf_hi,
+#                   .fns = ~standardize_inv_vec(x = .,
+#                                               mean = artifacts$standardize$std_mean[x],
+#                                               sd = artifacts$standardize$std_sd[x]))) %>%
+#     mutate(across(.value:.conf_hi,
+#                   .fns = ~expm1(x = .)))
+# })
+# 
+# forecast_calibration_tbl <- bind_rows(lforecasts)
+# 
+# forecast_calibration_tbl %>%
+#   group_by(materia) %>%
+#   plot_modeltime_forecast(.title = "Sentencias: Predicción 1 año",     
+#                           .facet_ncol         = 1, 
+#                           .conf_interval_show = FALSE,
+#                           .interactive        = TRUE)
 
 
 multilevelstack <- list(
